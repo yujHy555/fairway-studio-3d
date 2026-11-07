@@ -88,6 +88,28 @@ export const PRESET_FEATURES: PresetFeature[] = [
 
   // FAIRWAYS
   {
+    id: 'fringe_collar_expansion',
+    name: 'Green Fringe Collar Strip',
+    category: 'fringe',
+    description: '4m wide manicured fringe collar around putting green',
+    icon: '🟩',
+    surfaceType: SurfaceType.FRINGE,
+    width: 28,
+    length: 36,
+    depthProfile: 0.1
+  },
+  {
+    id: 'first_cut_swath',
+    name: 'First Cut Swath',
+    category: 'first_cut',
+    description: 'Intermediate playable rough strip bordering fairways',
+    icon: '🌾',
+    surfaceType: SurfaceType.FIRST_CUT,
+    width: 44,
+    length: 120,
+    depthProfile: 0.0
+  },
+  {
     id: 'fairway_landing_straight',
     name: 'Straight Fairway Strip',
     category: 'fairway',

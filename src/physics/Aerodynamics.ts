@@ -43,11 +43,11 @@ export class Aerodynamics {
     };
 
     // Lift Force (Magnus Effect)
-    // Cross product: spinVec x vRel
+    // Cross product: vRel x spinVec (gives +Y upward lift for forward vRel and rightward backspin)
     const cross: Vector3D = {
-      x: spinVec.y * vRel.z - spinVec.z * vRel.y,
-      y: spinVec.z * vRel.x - spinVec.x * vRel.z,
-      z: spinVec.x * vRel.y - spinVec.y * vRel.x
+      x: vRel.y * spinVec.z - vRel.z * spinVec.y,
+      y: vRel.z * spinVec.x - vRel.x * spinVec.z,
+      z: vRel.x * spinVec.y - vRel.y * spinVec.x
     };
     const crossMag = Math.sqrt(cross.x * cross.x + cross.y * cross.y + cross.z * cross.z);
 

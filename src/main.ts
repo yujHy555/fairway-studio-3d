@@ -151,13 +151,15 @@ class FairwayStudioApp {
         true
       );
       this.scene.environmentTexture = hdrTexture;
-      this.scene.environmentIntensity = 0.88;
+      this.scene.environmentIntensity = 0.55;
 
       const skybox = this.scene.createDefaultSkybox(hdrTexture, true, 2200, 0.05);
       if (skybox) {
         skybox.name = 'MistyPinesSkybox';
         skybox.isPickable = false;
         skybox.position.set(110, 0, 230);
+        skybox.infiniteDistance = true;
+        skybox.receiveShadows = false;
       }
     } catch (e) {
       console.warn('HDRI environment fallback:', e);
@@ -165,23 +167,34 @@ class FairwayStudioApp {
 
     // 2. Ambient Sky & Ground light
     const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
-    hemiLight.intensity = 0.52;
+    hemiLight.intensity = 0.35;
     hemiLight.diffuse = new Color3(0.92, 0.96, 1.0);
     hemiLight.groundColor = new Color3(0.24, 0.32, 0.18);
 
     // 3. Warm Sun Directional Light
     const sun = new DirectionalLight('sunLight', new Vector3(-0.55, -0.85, -0.45).normalize(), this.scene);
-    sun.position = new Vector3(110, 140, 200);
-    sun.intensity = 1.35;
-    sun.diffuse = new Color3(1.0, 0.96, 0.88); // Golden hour sun
+    sun.position = new Vector3(110, 160, 230);
+    sun.intensity = 1.68;
+    sun.diffuse = new Color3(1.0, 0.97, 0.88); // Golden hour sun
+
+    // Precise orthographic shadow bounds focused on active golf hole (220m x 460m)
+    sun.autoCalcShadowZBounds = true;
+    sun.autoUpdateExtends = false;
+    sun.orthoLeft = -130;
+    sun.orthoRight = 130;
+    sun.orthoTop = 260;
+    sun.orthoBottom = -260;
+    sun.shadowMinZ = 1;
+    sun.shadowMaxZ = 460;
 
     // High quality soft PCF shadows (optimized)
     try {
       this.shadowGenerator = new ShadowGenerator(2048, sun);
       this.shadowGenerator.usePercentageCloserFiltering = true;
-      this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
-      this.shadowGenerator.bias = 0.0015;
-      this.shadowGenerator.normalBias = 0.025;
+      this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_HIGH;
+      this.shadowGenerator.bias = 0.0008;
+      this.shadowGenerator.normalBias = 0.012;
+      this.shadowGenerator.darkness = 0.55; // Crisp, rich, visible soft shadows
     } catch (e) {
       console.warn('ShadowGenerator initialization fallback:', e);
     }
@@ -194,8 +207,10 @@ class FairwayStudioApp {
       if (
         m.name !== 'GolfTerrain' &&
         m.name !== 'ProceduralBackdropMesh' &&
+        m.name !== 'MistyPinesSkybox' &&
         !m.name.startsWith('water_') &&
         m.name !== 'gridOverlay' &&
+        m.name !== 'greenContourLineGrid' &&
         m.getTotalVertices() > 0
       ) {
         try {
@@ -212,8 +227,9 @@ class FairwayStudioApp {
     const groundY = this.terrain.getElevation(tee.x, tee.z);
     this.ball.setPosition(tee.x, groundY + GOLF_CONSTANTS.BALL_RADIUS + 0.05, tee.z);
 
-    // Aim directly at pin
+    // Aim directly at pin & set target pin for ball cup detection
     const pin = this.courseManager.currentHole.pinPosition;
+    this.ball.setTargetPin(pin);
     const dx = pin.x - tee.x;
     const dz = pin.z - tee.z;
     this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
@@ -456,6 +472,15 @@ class FairwayStudioApp {
       this.updateHUDDisplay();
     };
 
+    this.ball.onOutOfBounds = () => {
+      alert('⚠️ OUT OF BOUNDS! 1 penalty stroke. Ball returned to previous lie.');
+      this.courseManager.recordStroke();
+      this.ball.setPosition(this.ball.shotOrigin.x, this.ball.shotOrigin.y, this.ball.shotOrigin.z);
+      this.cameraCtrl.setMode('aim');
+      this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+      this.updateHUDDisplay();
+    };
+
     this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
     this.updateHUDDisplay();
   }
@@ -592,6 +617,7 @@ class FairwayStudioApp {
       hole.pinPosition.x = gx;
       hole.pinPosition.z = gz;
       this.courseManager.setupHoleVisuals();
+      this.ball.setTargetPin(hole.pinPosition);
       this.registerSceneryShadows();
       this.updateHUDDisplay();
     }
@@ -620,5 +646,6 @@ class FairwayStudioApp {
 window.addEventListener('DOMContentLoaded', async () => {
   const app = new FairwayStudioApp();
   (window as any).app = app;
+  (window as any).__GOLF_APP__ = app;
   await app.start();
 });

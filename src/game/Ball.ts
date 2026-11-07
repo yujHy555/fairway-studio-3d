@@ -43,6 +43,9 @@ export class Ball {
   public totalDistance = 0;
   private hasLanded = false;
 
+  // Active Pin Target for Dynamic Cup Entry
+  public activePinPosition: Vector3D | null = null;
+
   // Visual trajectory Toptracer ribbon (active only during shot)
   private tracerPoints: Vector3[] = [];
   private tracerMesh: Mesh | null = null;
@@ -51,6 +54,7 @@ export class Ball {
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
   public onHoleComplete?: () => void;
+  public onOutOfBounds?: () => void;
 
   constructor(scene: Scene, terrain: TerrainGrid) {
     this.scene = scene;
@@ -91,6 +95,10 @@ export class Ball {
     return this.currentLie;
   }
 
+  public setTargetPin(pin: Vector3D | null) {
+    this.activePinPosition = pin;
+  }
+
   public setPosition(x: number, y: number, z: number) {
     const minGroundY = this.terrain.getElevation(x, z) + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
     const finalY = Math.max(minGroundY, y);
@@ -106,7 +114,10 @@ export class Ball {
   /**
    * Striked by club - initiates flight trajectory
    */
-  public launch(shot: ShotResult, _pinPosition?: Vector3D) {
+  public launch(shot: ShotResult, pinPosition?: Vector3D) {
+    if (pinPosition) {
+      this.activePinPosition = pinPosition;
+    }
     this.clearTracer();
     this.flightTime = 0;
     this.atRestCounter = 0;
@@ -221,7 +232,50 @@ export class Ball {
 
       this.addTracerPoint(this.mesh.position.clone());
 
-      // Check water hazard
+      // 1. Dynamic Cup Entry: Check if rolling ball passes into/over cup
+      if (this.activePinPosition) {
+        const pinDx = this.mesh.position.x - this.activePinPosition.x;
+        const pinDz = this.mesh.position.z - this.activePinPosition.z;
+        const distToCup = Math.sqrt(pinDx * pinDx + pinDz * pinDz);
+
+        if (distToCup <= GOLF_CONSTANTS.CUP_RADIUS * 1.35) {
+          if (speed <= 4.2) {
+            // Ball drops into the hole!
+            this.state = BallState.IN_HOLE;
+            this.curVelocity = { x: 0, y: 0, z: 0 };
+            this.mesh.position.set(
+              this.activePinPosition.x,
+              this.activePinPosition.y - GOLF_CONSTANTS.CUP_DEPTH * 0.75,
+              this.activePinPosition.z
+            );
+            this.clearTracer();
+            soundFx.playCupDrop();
+            this.onHoleComplete?.();
+            this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });
+            return;
+          } else if (speed < 6.5) {
+            // High speed lip-out deflection
+            this.curVelocity.x *= -0.35;
+            this.curVelocity.z *= -0.35;
+          }
+        }
+      }
+
+      // 2. Course boundary containment (Out of bounds)
+      if (
+        this.mesh.position.x < 3 ||
+        this.mesh.position.x > this.terrain.width - 3 ||
+        this.mesh.position.z < 3 ||
+        this.mesh.position.z > this.terrain.length - 3
+      ) {
+        this.state = BallState.AT_REST;
+        this.curVelocity = { x: 0, y: 0, z: 0 };
+        this.clearTracer();
+        this.onOutOfBounds?.();
+        return;
+      }
+
+      // 3. Check water hazard
       if (surface === SurfaceType.WATER) {
         this.state = BallState.IN_WATER;
         this.clearTracer();
@@ -259,10 +313,31 @@ export class Ball {
       this.curVelocity.z * this.curVelocity.z
     );
 
-    const surfKey = surface === SurfaceType.GREEN ? 'green' :
+    const surfKey = (surface === SurfaceType.GREEN || surface === SurfaceType.FRINGE) ? 'green' :
                     surface === SurfaceType.BUNKER ? 'sand' :
-                    surface === SurfaceType.ROUGH ? 'rough' : 'fairway';
+                    (surface === SurfaceType.ROUGH || surface === SurfaceType.FIRST_CUT) ? 'rough' : 'fairway';
     soundFx.playBounce(surfKey, impactSpeed / 35.0);
+
+    // Direct cup hole-in on landing
+    if (this.activePinPosition) {
+      const pinDx = this.mesh.position.x - this.activePinPosition.x;
+      const pinDz = this.mesh.position.z - this.activePinPosition.z;
+      const distToCup = Math.sqrt(pinDx * pinDx + pinDz * pinDz);
+      if (distToCup <= GOLF_CONSTANTS.CUP_RADIUS * 1.25 && impactSpeed <= 5.5) {
+        this.state = BallState.IN_HOLE;
+        this.curVelocity = { x: 0, y: 0, z: 0 };
+        this.mesh.position.set(
+          this.activePinPosition.x,
+          this.activePinPosition.y - GOLF_CONSTANTS.CUP_DEPTH * 0.75,
+          this.activePinPosition.z
+        );
+        this.clearTracer();
+        soundFx.playCupDrop();
+        this.onHoleComplete?.();
+        this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });
+        return;
+      }
+    }
 
     if (surface === SurfaceType.WATER) {
       this.state = BallState.IN_WATER;

@@ -7,7 +7,9 @@ export enum SurfaceType {
   BUNKER = 3,
   TEE = 4,
   WATER = 5,
-  CUP_BOTTOM = 6
+  CUP_BOTTOM = 6,
+  FRINGE = 7,
+  FIRST_CUT = 8
 }
 
 export interface SurfaceProperties {
@@ -83,6 +85,24 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
     rollingResistance: 1.5,
     liePenalty: 1.0,
     spinMultiplier: 1.0
+  },
+  [SurfaceType.FRINGE]: {
+    name: 'Green Fringe',
+    color: [0.33, 0.74, 0.33],     // Vivid fringe collar surrounding the green
+    restitution: 0.34,
+    friction: 0.32,
+    rollingResistance: 0.30,       // Slightly slower than green; puttable
+    liePenalty: 0.95,
+    spinMultiplier: 0.90
+  },
+  [SurfaceType.FIRST_CUT]: {
+    name: 'First Cut',
+    color: [0.29, 0.58, 0.22],     // Intermediate cut bordering fairway
+    restitution: 0.24,
+    friction: 0.60,
+    rollingResistance: 0.55,       // Catches runaway fairway rollouts cleanly
+    liePenalty: 0.88,
+    spinMultiplier: 0.75
   }
 };
 

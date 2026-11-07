@@ -211,6 +211,24 @@ export class TerrainGrid {
               const blend = Math.cos(normDist * Math.PI * 0.5);
               this.heights[idx] = this.heights[idx] * (1 - blend) + (baseElevation + depthProfile) * blend;
               this.surfaceTypes[idx] = SurfaceType.GREEN;
+            } else if (normDist <= 1.20 && this.surfaceTypes[idx] !== SurfaceType.BUNKER && this.surfaceTypes[idx] !== SurfaceType.WATER) {
+              // 2m-3m Green Fringe Collar
+              this.surfaceTypes[idx] = SurfaceType.FRINGE;
+            }
+          } else if (surfaceType === SurfaceType.FAIRWAY) {
+            if (normDist <= 1.0) {
+              this.surfaceTypes[idx] = SurfaceType.FAIRWAY;
+            } else if (normDist <= 1.15 && this.surfaceTypes[idx] === SurfaceType.ROUGH) {
+              // 3m Fairway First Cut border
+              this.surfaceTypes[idx] = SurfaceType.FIRST_CUT;
+            }
+          } else if (surfaceType === SurfaceType.FRINGE) {
+            if (normDist <= 1.0) {
+              this.surfaceTypes[idx] = SurfaceType.FRINGE;
+            }
+          } else if (surfaceType === SurfaceType.FIRST_CUT) {
+            if (normDist <= 1.0) {
+              this.surfaceTypes[idx] = SurfaceType.FIRST_CUT;
             }
           } else if (surfaceType === SurfaceType.TEE) {
             if (normDist <= 1.0) {
@@ -317,6 +335,21 @@ export class TerrainGrid {
       return baseRgb;
     };
 
+    // Resolves dominant surface type for a triangular face to maintain razor-sharp low-poly facet borders
+    const getFaceSurface = (sA: number, sB: number, sC: number): SurfaceType => {
+      if (sA === SurfaceType.CUP_BOTTOM || sB === SurfaceType.CUP_BOTTOM || sC === SurfaceType.CUP_BOTTOM) return SurfaceType.CUP_BOTTOM;
+      if (sA === SurfaceType.WATER && (sB === SurfaceType.WATER || sC === SurfaceType.WATER)) return SurfaceType.WATER;
+      if (sA === SurfaceType.BUNKER && (sB === SurfaceType.BUNKER || sC === SurfaceType.BUNKER)) return SurfaceType.BUNKER;
+      if (sA === SurfaceType.GREEN && (sB === SurfaceType.GREEN || sC === SurfaceType.GREEN)) return SurfaceType.GREEN;
+      if (sA === SurfaceType.FRINGE && (sB === SurfaceType.FRINGE || sC === SurfaceType.FRINGE)) return SurfaceType.FRINGE;
+      if (sA === SurfaceType.TEE && (sB === SurfaceType.TEE || sC === SurfaceType.TEE)) return SurfaceType.TEE;
+      if (sA === SurfaceType.FAIRWAY && (sB === SurfaceType.FAIRWAY || sC === SurfaceType.FAIRWAY)) return SurfaceType.FAIRWAY;
+      if (sA === SurfaceType.FIRST_CUT && (sB === SurfaceType.FIRST_CUT || sC === SurfaceType.FIRST_CUT)) return SurfaceType.FIRST_CUT;
+      if (sA === sB || sA === sC) return sA as SurfaceType;
+      if (sB === sC) return sB as SurfaceType;
+      return sA as SurfaceType;
+    };
+
     for (let z = 0; z < this.length; z++) {
       for (let x = 0; x < this.width; x++) {
         const idx00 = z * this.cols + x;
@@ -343,10 +376,15 @@ export class TerrainGrid {
         const l1 = Math.sqrt(nx1 * nx1 + ny1 * ny1 + nz1 * nz1) || 1;
         nx1 /= l1; ny1 /= l1; nz1 /= l1;
 
+        const tri1Surf = getFaceSurface(s00, s01, s10);
+        const tri1CenterX = x + 0.333;
+        const tri1CenterZ = z + 0.333;
+        const rgb1 = evaluateSurfaceColor(tri1CenterX, tri1CenterZ, tri1Surf, ny1);
+
         const tri1Verts = [
-          { px: x, py: y00, pz: z, s: s00 },
-          { px: x, py: y01, pz: z + 1, s: s01 },
-          { px: x + 1, py: y10, pz: z, s: s10 }
+          { px: x, py: y00, pz: z },
+          { px: x, py: y01, pz: z + 1 },
+          { px: x + 1, py: y10, pz: z }
         ];
 
         for (const tv of tri1Verts) {
@@ -358,10 +396,9 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny1;
           normals[pIdx + 2] = nz1;
 
-          const rgb = evaluateSurfaceColor(tv.px, tv.pz, tv.s as SurfaceType, ny1);
-          colors[cIdx] = rgb[0];
-          colors[cIdx + 1] = rgb[1];
-          colors[cIdx + 2] = rgb[2];
+          colors[cIdx] = rgb1[0];
+          colors[cIdx + 1] = rgb1[1];
+          colors[cIdx + 2] = rgb1[2];
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;
@@ -379,10 +416,15 @@ export class TerrainGrid {
         const l2 = Math.sqrt(nx2 * nx2 + ny2 * ny2 + nz2 * nz2) || 1;
         nx2 /= l2; ny2 /= l2; nz2 /= l2;
 
+        const tri2Surf = getFaceSurface(s10, s01, s11);
+        const tri2CenterX = x + 0.667;
+        const tri2CenterZ = z + 0.667;
+        const rgb2 = evaluateSurfaceColor(tri2CenterX, tri2CenterZ, tri2Surf, ny2);
+
         const tri2Verts = [
-          { px: x + 1, py: y10, pz: z, s: s10 },
-          { px: x, py: y01, pz: z + 1, s: s01 },
-          { px: x + 1, py: y11, pz: z + 1, s: s11 }
+          { px: x + 1, py: y10, pz: z },
+          { px: x, py: y01, pz: z + 1 },
+          { px: x + 1, py: y11, pz: z + 1 }
         ];
 
         for (const tv of tri2Verts) {
@@ -394,10 +436,9 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny2;
           normals[pIdx + 2] = nz2;
 
-          const rgb = evaluateSurfaceColor(tv.px, tv.pz, tv.s as SurfaceType, ny2);
-          colors[cIdx] = rgb[0];
-          colors[cIdx + 1] = rgb[1];
-          colors[cIdx + 2] = rgb[2];
+          colors[cIdx] = rgb2[0];
+          colors[cIdx + 1] = rgb2[1];
+          colors[cIdx + 2] = rgb2[2];
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;

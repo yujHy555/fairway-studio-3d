@@ -71,8 +71,16 @@ export class SwingEngine {
 
       // Snap hash line is located at 15% (0.15)
       const snapTarget = 0.15;
-      const snapError = (this.meterProgress - snapTarget) / 0.18; // scaled offset
-      this.accuracyOffset = Math.max(-1.0, Math.min(1.0, snapError));
+      const rawError = (this.meterProgress - snapTarget) / 0.18; // scaled offset
+
+      // Sweetspot deadzone for forgiving, rewarding center-face strikes
+      if (Math.abs(rawError) <= 0.22) {
+        this.accuracyOffset = 0; // Pure center strike!
+      } else {
+        const sign = Math.sign(rawError);
+        const err = (Math.abs(rawError) - 0.22) / (1.0 - 0.22);
+        this.accuracyOffset = sign * Math.min(1.0, Math.pow(err, 1.15));
+      }
 
       this.executeShot();
       return this.phase;
@@ -115,9 +123,16 @@ export class SwingEngine {
     }
   }
 
-  private executeShot() {
+  public executeShot() {
     const lieProps = SURFACE_PROPERTIES[this.currentLie];
-    const power = Math.max(0.15, this.powerPercent) * lieProps.liePenalty;
+    // Scale power so locking near top (0.85 - 1.05) gives full 95% - 105% power smoothly
+    let effectivePower = this.powerPercent;
+    if (effectivePower >= 0.85) {
+      effectivePower = 0.95 + (effectivePower - 0.85) * 0.5; // up to 1.05
+    } else {
+      effectivePower = (effectivePower / 0.85) * 0.95;
+    }
+    const power = Math.max(0.15, Math.min(1.05, effectivePower)) * lieProps.liePenalty;
 
     const launchSpeed = this.activeClub.baseBallSpeedMps * power;
 

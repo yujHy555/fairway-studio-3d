@@ -17,6 +17,8 @@ export type PresetFeatureCategory =
   | 'bunker' 
   | 'water' 
   | 'tee' 
+  | 'fringe'
+  | 'first_cut'
   | 'scenery';
 
 export interface PresetFeature {

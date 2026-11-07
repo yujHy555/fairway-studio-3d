@@ -122,31 +122,35 @@ export class CameraController {
 
   /**
    * Prevents camera from ever penetrating terrain or clipping underground across all angles
+   * Uses smooth spherical angle bounds to eliminate any shudder or jitter.
    */
   public enforceTerrainCollision(getTerrainElevation: (x: number, z: number) => number) {
     const camPos = this.camera.position;
     const groundY = getTerrainElevation(camPos.x, camPos.z);
-    const minSafeY = groundY + 0.75; // 0.75m minimum clearance above terrain
+    const minSafeY = groundY + 0.65; // 0.65m minimum clearance above terrain
 
-    if (camPos.y < minSafeY) {
-      const targetY = this.camera.target.y;
-      const dy = minSafeY - targetY;
-      const cosBetaReq = dy / Math.max(0.2, this.camera.radius);
-      if (cosBetaReq >= -0.99 && cosBetaReq <= 0.99) {
-        const safeBeta = Math.acos(cosBetaReq);
-        if (this.camera.beta > safeBeta) {
-          this.camera.beta = Math.max(0.08, safeBeta - 0.03);
-        }
-      }
-      if (this.camera.position.y < minSafeY) {
-        this.camera.position.y = minSafeY;
-      }
+    const targetY = this.camera.target.y;
+    const dy = minSafeY - targetY;
+    const cosBetaReq = dy / Math.max(0.2, this.camera.radius);
+
+    let safeUpperBeta = Math.PI / 2.12; // ~85 deg default max tilt
+    if (cosBetaReq >= -0.98 && cosBetaReq <= 0.98) {
+      safeUpperBeta = Math.acos(cosBetaReq) - 0.025;
     }
 
-    // Ensure target never dips underground
+    const targetUpperBeta = Math.max(0.15, Math.min(Math.PI / 2.12, safeUpperBeta));
+
+    // Smoothly adapt upperBetaLimit so player drag glides seamlessly over undulating terrain
+    this.camera.upperBetaLimit = this.camera.upperBetaLimit * 0.75 + targetUpperBeta * 0.25;
+
+    if (this.camera.beta > this.camera.upperBetaLimit) {
+      this.camera.beta = this.camera.upperBetaLimit;
+    }
+
+    // Ensure camera target itself stays comfortably above ground
     const targetGroundY = getTerrainElevation(this.camera.target.x, this.camera.target.z);
-    if (this.camera.target.y < targetGroundY + 0.1) {
-      this.camera.target.y = targetGroundY + 0.1;
+    if (this.camera.target.y < targetGroundY + 0.15) {
+      this.camera.target.y = targetGroundY + 0.15;
     }
   }
 
