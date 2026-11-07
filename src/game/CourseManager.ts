@@ -127,10 +127,9 @@ export class CourseManager {
     return list;
   }
 
-  public addHole(par: 3 | 4 | 5 = 4, name?: string): GolfHole {
+  public addHole(par: 3 | 4 | 5 = 4, name?: string): GolfHole | null {
     if (this.courseData.holes.length >= 9) {
-      alert('Maximum of 9 holes reached for this course.');
-      return this.currentHole;
+      return null;
     }
 
     const nextNum = this.courseData.holes.length + 1;
@@ -172,10 +171,11 @@ export class CourseManager {
 
   public completeHole(): HoleScore {
     const hole = this.currentHole;
-    const diff = this.currentStrokes - hole.par;
+    const strokes = Math.max(1, this.currentStrokes);
+    const diff = strokes - hole.par;
     let scoreText = 'Par (E)';
-    if (this.currentStrokes === 1) scoreText = 'HOLE IN ONE! 🌟';
-    else if (diff === -3) scoreText = 'Albatross (-3) 🦅';
+    if (strokes === 1) scoreText = 'HOLE IN ONE! 🌟';
+    else if (diff <= -3) scoreText = 'Albatross (-3) 🦅';
     else if (diff === -2) scoreText = 'Eagle (-2) 🦅';
     else if (diff === -1) scoreText = 'Birdie (-1) 🐦';
     else if (diff === 0) scoreText = 'Par (E) ⛳';
@@ -186,7 +186,7 @@ export class CourseManager {
     const score: HoleScore = {
       holeNumber: hole.number,
       par: hole.par,
-      strokes: this.currentStrokes,
+      strokes,
       putts: this.currentPutts,
       scoreText
     };

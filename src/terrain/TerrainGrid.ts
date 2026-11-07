@@ -3,10 +3,23 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
-  Color3
+  Color3,
+  DynamicTexture,
+  Texture
 } from '@babylonjs/core';
 import { GOLF_CONSTANTS, SurfaceType, SURFACE_PROPERTIES } from '../core/Constants';
 import { Vector3D } from '../core/Types';
+
+export interface StampedFeatureRecord {
+  centerX: number;
+  centerZ: number;
+  width: number;
+  length: number;
+  rotationRad: number;
+  surfaceType: SurfaceType;
+  depthProfile: number;
+  lipHeight: number;
+}
 
 export class TerrainGrid {
   public readonly width: number;
@@ -21,6 +34,8 @@ export class TerrainGrid {
   // Babylon mesh representation
   public terrainMesh: Mesh | null = null;
   public gridOverlayMesh: Mesh | null = null;
+  public splatTexture: DynamicTexture | null = null;
+  public stampedFeatures: StampedFeatureRecord[] = [];
   private scene: Scene;
 
   constructor(scene: Scene, width = GOLF_CONSTANTS.DEFAULT_MAP_WIDTH, length = GOLF_CONSTANTS.DEFAULT_MAP_LENGTH) {
@@ -156,6 +171,34 @@ export class TerrainGrid {
       }
     }
 
+    if (this.splatTexture && (mode === 'paint' || targetSurface !== undefined)) {
+      const ctx = this.splatTexture.getContext() as CanvasRenderingContext2D;
+      const sX = 1024 / this.width;
+      const sZ = 2048 / this.length;
+      const cx = centerX * sX;
+      const cz = centerZ * sZ;
+      const rX = radius * sX;
+      const rZ = radius * sZ;
+
+      const props = SURFACE_PROPERTIES[targetSurface];
+      const r = Math.round(props.color[0] * 255);
+      const g = Math.round(props.color[1] * 255);
+      const b = Math.round(props.color[2] * 255);
+
+      const grad = ctx.createRadialGradient(cx, cz, rX * 0.2, cx, cz, rX);
+      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.85)`);
+      grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.0)`);
+
+      ctx.save();
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(cx, cz, rX, rZ, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      this.splatTexture.update(false);
+    }
+
     this.rebuildMesh();
   }
 
@@ -251,6 +294,19 @@ export class TerrainGrid {
       }
     }
 
+    // Record feature for high-resolution smooth vector splat map rendering
+    this.stampedFeatures.push({
+      centerX,
+      centerZ,
+      width,
+      length,
+      rotationRad,
+      surfaceType,
+      depthProfile,
+      lipHeight
+    });
+
+    this.redrawSplatTexture();
     this.rebuildMesh();
   }
 
@@ -262,14 +318,184 @@ export class TerrainGrid {
     const mesh = new Mesh('GolfTerrain', this.scene);
     this.terrainMesh = mesh;
 
-    this.rebuildMesh();
+    // High-resolution Dynamic Texture for mathematically smooth, anti-aliased surface borders
+    this.splatTexture = new DynamicTexture(
+      'terrainSplatTexture',
+      { width: 1024, height: 2048 },
+      this.scene,
+      true,
+      Texture.BILINEAR_SAMPLINGMODE,
+      undefined,
+      false
+    );
+    this.splatTexture.wrapU = DynamicTexture.CLAMP_ADDRESSMODE;
+    this.splatTexture.wrapV = DynamicTexture.CLAMP_ADDRESSMODE;
 
     const mat = new StandardMaterial('terrainMat', this.scene);
+    mat.diffuseTexture = this.splatTexture;
     mat.specularColor = new Color3(0.04, 0.04, 0.04);
+    mat.specularPower = 32;
     mat.backFaceCulling = false;
     mesh.material = mat;
 
+    this.redrawSplatTexture();
+    this.rebuildMesh();
+
     return mesh;
+  }
+
+  /**
+   * Renders mathematically smooth, anti-aliased curved borders for all
+   * fairways, first-cut margins, greens, fringe collars, bunkers, and tee boxes.
+   */
+  public redrawSplatTexture() {
+    if (!this.splatTexture) return;
+
+    const ctx = this.splatTexture.getContext() as CanvasRenderingContext2D;
+    const canvasW = 1024;
+    const canvasH = 2048;
+
+    const sX = canvasW / this.width;
+    const sZ = canvasH / this.length;
+
+    // 1. Lush deep rough grass background
+    ctx.fillStyle = '#2f5e23';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // Subtle natural organic turf texture
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.025)';
+    for (let i = 0; i < 400; i++) {
+      const rx = (Math.sin(i * 12.3) * 0.5 + 0.5) * canvasW;
+      const rz = (Math.cos(i * 34.5) * 0.5 + 0.5) * canvasH;
+      ctx.fillRect(rx, rz, 4, 4);
+    }
+
+    // 2. Draw all stamped features with smooth anti-aliased vector curves
+    for (const feat of this.stampedFeatures) {
+      this.drawFeatureOnCanvas(ctx, feat, sX, sZ);
+    }
+
+    this.splatTexture.update(false);
+  }
+
+  private drawFeatureOnCanvas(
+    ctx: CanvasRenderingContext2D,
+    feat: StampedFeatureRecord,
+    sX: number,
+    sZ: number
+  ) {
+    const cx = feat.centerX * sX;
+    const cz = feat.centerZ * sZ;
+    const halfW = (feat.width * 0.5) * sX;
+    const halfL = (feat.length * 0.5) * sZ;
+
+    ctx.save();
+    ctx.translate(cx, cz);
+    ctx.rotate(feat.rotationRad);
+
+    if (feat.surfaceType === SurfaceType.FAIRWAY) {
+      // 1. First Cut outer border (3.2m wider) - perfectly smooth curve
+      const fcW = halfW + 3.2 * sX;
+      const fcL = halfL + 3.2 * sZ;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, fcW, fcL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#3f782c'; // Smooth intermediate first cut
+      ctx.fill();
+
+      // 2. Main Fairway body - super smooth anti-aliased boundary
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#5ab843'; // Crisp bright fairway green
+      ctx.fill();
+
+      // 3. Elegant Fairway Mowing Stripes (clipped to fairway ellipse)
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.clip();
+
+      const stripeStep = 4.0 * sZ;
+      const numStripes = Math.ceil(halfL * 2 / stripeStep);
+      for (let i = -numStripes; i <= numStripes; i++) {
+        if (i % 2 === 0) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+        } else {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        }
+        ctx.fillRect(-halfW * 1.5, i * stripeStep, halfW * 3.0, stripeStep);
+      }
+      ctx.restore();
+
+    } else if (feat.surfaceType === SurfaceType.GREEN) {
+      // 1. Fringe Collar (2.5m wider) - super smooth curve
+      const fringeW = halfW + 2.5 * sX;
+      const fringeL = halfL + 2.5 * sZ;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, fringeW, fringeL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#469c4c'; // Green fringe collar
+      ctx.fill();
+
+      // 2. Championship Putting Green
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#3ec26c'; // Tournament emerald green
+      ctx.fill();
+
+      // Subtle tournament green gradient/concentric highlight
+      const greenGrad = ctx.createRadialGradient(0, 0, halfW * 0.2, 0, 0, halfW);
+      greenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
+      greenGrad.addColorStop(1, 'rgba(0, 0, 0, 0.04)');
+      ctx.fillStyle = greenGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+    } else if (feat.surfaceType === SurfaceType.BUNKER) {
+      // 1. Feathered sand margin / bunker lip
+      const lipW = halfW + 0.7 * sX;
+      const lipL = halfL + 0.7 * sZ;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, lipW, lipL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#beac7d'; // Warm sand lip
+      ctx.fill();
+
+      // 2. Main bunker sand basin with radial depth gradient
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      const sandGrad = ctx.createRadialGradient(0, 0, halfW * 0.1, 0, 0, halfW);
+      sandGrad.addColorStop(0, '#ebd7a0'); // Golden sunlit sand
+      sandGrad.addColorStop(1, '#d8be86'); // Deeper shaded bowl
+      ctx.fillStyle = sandGrad;
+      ctx.fill();
+
+    } else if (feat.surfaceType === SurfaceType.TEE) {
+      // Tee box border
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW + 0.6 * sX, halfL + 0.6 * sZ, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#397829';
+      ctx.fill();
+
+      // Tee box turf
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#5ab846';
+      ctx.fill();
+
+    } else if (feat.surfaceType === SurfaceType.WATER) {
+      // Shoreline
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW + 1.0 * sX, halfL + 1.0 * sZ, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#2c7aa3';
+      ctx.fill();
+
+      // Deep water
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#174f72';
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   /**
@@ -284,71 +510,14 @@ export class TerrainGrid {
 
     const positions = new Float32Array(vertexCount * 3);
     const normals = new Float32Array(vertexCount * 3);
+    const uvs = new Float32Array(vertexCount * 2);
     const colors = new Float32Array(vertexCount * 4);
     const indices = new Uint32Array(vertexCount);
 
     let vIdx = 0;
     let pIdx = 0;
+    let uIdx = 0;
     let cIdx = 0;
-
-    // Helper to evaluate blended surface color with mowing patterns & slope rock
-    const evaluateSurfaceColor = (
-      px: number,
-      pz: number,
-      surf: SurfaceType,
-      normalY: number
-    ): [number, number, number] => {
-      // 1. Slope-aware Rock Blending (automatic rocky cliffs on steep grades like ProceduralTerrains)
-      const slope = 1.0 - normalY;
-      if (slope > 0.45 && surf !== SurfaceType.WATER) {
-        // Granite cliff stone
-        const rockJitter = Math.sin(px * 1.5 + pz * 2.3) * 0.04;
-        return [0.48 + rockJitter, 0.50 + rockJitter, 0.52 + rockJitter];
-      }
-
-      // Base color from property table
-      const baseRgb = [...SURFACE_PROPERTIES[surf].color] as [number, number, number];
-
-      // 2. Mowing stripes on Fairway (4-meter alternating directional cut)
-      if (surf === SurfaceType.FAIRWAY) {
-        const stripePattern = Math.sin((pz + px * 0.2) * (Math.PI / 4.0));
-        const stripeBrightness = stripePattern > 0 ? 0.035 : -0.035;
-        baseRgb[0] = Math.max(0, Math.min(1, baseRgb[0] + stripeBrightness * 0.8));
-        baseRgb[1] = Math.max(0, Math.min(1, baseRgb[1] + stripeBrightness * 1.2));
-        baseRgb[2] = Math.max(0, Math.min(1, baseRgb[2] + stripeBrightness * 0.6));
-      }
-
-      // 3. Green collar/fringe subtle shading
-      if (surf === SurfaceType.GREEN) {
-        // Subtle concentric ring pattern on green
-        const ring = Math.sin(Math.sqrt(px * px + pz * pz) * 1.5) * 0.02;
-        baseRgb[0] += ring;
-        baseRgb[1] += ring * 1.2;
-      }
-
-      // 4. Subtle per-triangle low-poly organic jitter
-      const jitter = Math.sin(px * 12.3 + pz * 45.6) * 0.025;
-      baseRgb[0] = Math.max(0, Math.min(1, baseRgb[0] + jitter));
-      baseRgb[1] = Math.max(0, Math.min(1, baseRgb[1] + jitter));
-      baseRgb[2] = Math.max(0, Math.min(1, baseRgb[2] + jitter));
-
-      return baseRgb;
-    };
-
-    // Resolves dominant surface type for a triangular face to maintain razor-sharp low-poly facet borders
-    const getFaceSurface = (sA: number, sB: number, sC: number): SurfaceType => {
-      if (sA === SurfaceType.CUP_BOTTOM || sB === SurfaceType.CUP_BOTTOM || sC === SurfaceType.CUP_BOTTOM) return SurfaceType.CUP_BOTTOM;
-      if (sA === SurfaceType.WATER && (sB === SurfaceType.WATER || sC === SurfaceType.WATER)) return SurfaceType.WATER;
-      if (sA === SurfaceType.BUNKER && (sB === SurfaceType.BUNKER || sC === SurfaceType.BUNKER)) return SurfaceType.BUNKER;
-      if (sA === SurfaceType.GREEN && (sB === SurfaceType.GREEN || sC === SurfaceType.GREEN)) return SurfaceType.GREEN;
-      if (sA === SurfaceType.FRINGE && (sB === SurfaceType.FRINGE || sC === SurfaceType.FRINGE)) return SurfaceType.FRINGE;
-      if (sA === SurfaceType.TEE && (sB === SurfaceType.TEE || sC === SurfaceType.TEE)) return SurfaceType.TEE;
-      if (sA === SurfaceType.FAIRWAY && (sB === SurfaceType.FAIRWAY || sC === SurfaceType.FAIRWAY)) return SurfaceType.FAIRWAY;
-      if (sA === SurfaceType.FIRST_CUT && (sB === SurfaceType.FIRST_CUT || sC === SurfaceType.FIRST_CUT)) return SurfaceType.FIRST_CUT;
-      if (sA === sB || sA === sC) return sA as SurfaceType;
-      if (sB === sC) return sB as SurfaceType;
-      return sA as SurfaceType;
-    };
 
     for (let z = 0; z < this.length; z++) {
       for (let x = 0; x < this.width; x++) {
@@ -362,11 +531,6 @@ export class TerrainGrid {
         const y01 = this.heights[idx01];
         const y11 = this.heights[idx11];
 
-        const s00 = this.surfaceTypes[idx00];
-        const s10 = this.surfaceTypes[idx10];
-        const s01 = this.surfaceTypes[idx01];
-        const s11 = this.surfaceTypes[idx11];
-
         // Triangle 1: (0,0), (0,1), (1,0)
         const ax1 = 0, ay1 = y01 - y00, az1 = 1;
         const bx1 = 1, by1 = y10 - y00, bz1 = 0;
@@ -376,16 +540,13 @@ export class TerrainGrid {
         const l1 = Math.sqrt(nx1 * nx1 + ny1 * ny1 + nz1 * nz1) || 1;
         nx1 /= l1; ny1 /= l1; nz1 /= l1;
 
-        const tri1Surf = getFaceSurface(s00, s01, s10);
-        const tri1CenterX = x + 0.333;
-        const tri1CenterZ = z + 0.333;
-        const rgb1 = evaluateSurfaceColor(tri1CenterX, tri1CenterZ, tri1Surf, ny1);
-
         const tri1Verts = [
           { px: x, py: y00, pz: z },
           { px: x, py: y01, pz: z + 1 },
           { px: x + 1, py: y10, pz: z }
         ];
+
+        const slopeShade1 = Math.max(0.70, ny1);
 
         for (const tv of tri1Verts) {
           positions[pIdx] = tv.px;
@@ -396,14 +557,18 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny1;
           normals[pIdx + 2] = nz1;
 
-          colors[cIdx] = rgb1[0];
-          colors[cIdx + 1] = rgb1[1];
-          colors[cIdx + 2] = rgb1[2];
+          uvs[uIdx] = tv.px / this.width;
+          uvs[uIdx + 1] = tv.pz / this.length;
+
+          colors[cIdx] = slopeShade1;
+          colors[cIdx + 1] = slopeShade1;
+          colors[cIdx + 2] = slopeShade1;
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;
           vIdx++;
           pIdx += 3;
+          uIdx += 2;
           cIdx += 4;
         }
 
@@ -416,16 +581,13 @@ export class TerrainGrid {
         const l2 = Math.sqrt(nx2 * nx2 + ny2 * ny2 + nz2 * nz2) || 1;
         nx2 /= l2; ny2 /= l2; nz2 /= l2;
 
-        const tri2Surf = getFaceSurface(s10, s01, s11);
-        const tri2CenterX = x + 0.667;
-        const tri2CenterZ = z + 0.667;
-        const rgb2 = evaluateSurfaceColor(tri2CenterX, tri2CenterZ, tri2Surf, ny2);
-
         const tri2Verts = [
           { px: x + 1, py: y10, pz: z },
           { px: x, py: y01, pz: z + 1 },
           { px: x + 1, py: y11, pz: z + 1 }
         ];
+
+        const slopeShade2 = Math.max(0.70, ny2);
 
         for (const tv of tri2Verts) {
           positions[pIdx] = tv.px;
@@ -436,14 +598,18 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny2;
           normals[pIdx + 2] = nz2;
 
-          colors[cIdx] = rgb2[0];
-          colors[cIdx + 1] = rgb2[1];
-          colors[cIdx + 2] = rgb2[2];
+          uvs[uIdx] = tv.px / this.width;
+          uvs[uIdx + 1] = tv.pz / this.length;
+
+          colors[cIdx] = slopeShade2;
+          colors[cIdx + 1] = slopeShade2;
+          colors[cIdx + 2] = slopeShade2;
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;
           vIdx++;
           pIdx += 3;
+          uIdx += 2;
           cIdx += 4;
         }
       }
@@ -452,6 +618,7 @@ export class TerrainGrid {
     const vertexData = new VertexData();
     vertexData.positions = positions;
     vertexData.normals = normals;
+    vertexData.uvs = uvs;
     vertexData.colors = colors;
     vertexData.indices = indices;
     vertexData.applyToMesh(this.terrainMesh, true);

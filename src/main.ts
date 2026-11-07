@@ -27,6 +27,7 @@ import { GOLF_CLUBS, getRecommendedClub } from './game/ClubBag';
 import { SwingEngine } from './game/SwingEngine';
 import { CameraController } from './game/CameraController';
 import { CourseManager } from './game/CourseManager';
+import { AimSystem } from './game/AimSystem';
 import { UIController } from './ui/UIController';
 
 class FairwayStudioApp {
@@ -42,6 +43,7 @@ class FairwayStudioApp {
   private greenVisualizer!: GreenContourVisualizer;
   private ball!: Ball;
   private swingEngine!: SwingEngine;
+  private aimSystem!: AimSystem;
   private cameraCtrl!: CameraController;
   private ui!: UIController;
   private shadowGenerator: ShadowGenerator | null = null;
@@ -55,6 +57,8 @@ class FairwayStudioApp {
   private targetSurface: SurfaceType = SurfaceType.FAIRWAY;
   private activePreset: PresetFeature | null = null;
   private isPointerDown = false;
+  private pointerDownClientX = 0;
+  private pointerDownClientY = 0;
 
   // Grid mesh
   private gridMesh: ReturnType<typeof MeshBuilder.CreateGround> | null = null;
@@ -105,7 +109,10 @@ class FairwayStudioApp {
     this.ball = new Ball(this.scene, this.terrain);
     this.swingEngine = new SwingEngine(this.activeClub);
 
-    // 8. Setup UI & Event Handlers (must be initialized before placeBallAtActiveTee)
+    // 8. AAA Aim System (Target beacon, dispersion ring, aerodynamic prediction arc)
+    this.aimSystem = new AimSystem(this.scene, this.terrain);
+
+    // 9. Setup UI & Event Handlers (must be initialized before placeBallAtActiveTee)
     this.setupUI();
 
     // Ball casts shadows
@@ -167,34 +174,36 @@ class FairwayStudioApp {
 
     // 2. Ambient Sky & Ground light
     const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
-    hemiLight.intensity = 0.35;
+    hemiLight.intensity = 0.38;
     hemiLight.diffuse = new Color3(0.92, 0.96, 1.0);
     hemiLight.groundColor = new Color3(0.24, 0.32, 0.18);
 
-    // 3. Warm Sun Directional Light
-    const sun = new DirectionalLight('sunLight', new Vector3(-0.55, -0.85, -0.45).normalize(), this.scene);
-    sun.position = new Vector3(110, 160, 230);
-    sun.intensity = 1.68;
+    // 3. Warm Sun Directional Light with optimal casting angle across course
+    const courseCenter = new Vector3(110, 8, 210);
+    const lightDir = new Vector3(-0.35, -0.72, 0.59).normalize();
+    const sun = new DirectionalLight('sunLight', lightDir, this.scene);
+    sun.position = courseCenter.subtract(lightDir.scale(320));
+    sun.intensity = 1.75;
     sun.diffuse = new Color3(1.0, 0.97, 0.88); // Golden hour sun
 
     // Precise orthographic shadow bounds focused on active golf hole (220m x 460m)
     sun.autoCalcShadowZBounds = true;
     sun.autoUpdateExtends = false;
-    sun.orthoLeft = -130;
-    sun.orthoRight = 130;
-    sun.orthoTop = 260;
-    sun.orthoBottom = -260;
-    sun.shadowMinZ = 1;
-    sun.shadowMaxZ = 460;
+    sun.orthoLeft = -220;
+    sun.orthoRight = 220;
+    sun.orthoTop = 270;
+    sun.orthoBottom = -270;
+    sun.shadowMinZ = 20;
+    sun.shadowMaxZ = 720;
 
     // High quality soft PCF shadows (optimized)
     try {
       this.shadowGenerator = new ShadowGenerator(2048, sun);
       this.shadowGenerator.usePercentageCloserFiltering = true;
       this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_HIGH;
-      this.shadowGenerator.bias = 0.0008;
+      this.shadowGenerator.bias = 0.0006;
       this.shadowGenerator.normalBias = 0.012;
-      this.shadowGenerator.darkness = 0.55; // Crisp, rich, visible soft shadows
+      this.shadowGenerator.darkness = 0.18; // Crisp, rich, visible soft shadows across the hole
     } catch (e) {
       console.warn('ShadowGenerator initialization fallback:', e);
     }
@@ -211,6 +220,8 @@ class FairwayStudioApp {
         !m.name.startsWith('water_') &&
         m.name !== 'gridOverlay' &&
         m.name !== 'greenContourLineGrid' &&
+        !m.name.startsWith('aim') &&
+        !m.name.startsWith('trajectory') &&
         m.getTotalVertices() > 0
       ) {
         try {
@@ -244,6 +255,17 @@ class FairwayStudioApp {
     this.activeClub = getRecommendedClub(distToPin, false);
     this.swingEngine.setClub(this.activeClub);
 
+    // Update AAA Aim System target beacon and flight prediction arc
+    if (this.aimSystem) {
+      this.aimSystem.targetDistanceMeters = Math.min(distToPin, this.activeClub.typicalCarryMeters);
+      this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+      this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+      this.aimSystem.setVisible(this.activeMode === 'play');
+    }
+    if (this.ui) {
+      this.ui.setSwingEnabled(true);
+    }
+
     this.updateHUDDisplay();
   }
 
@@ -253,9 +275,14 @@ class FairwayStudioApp {
         this.activeMode = mode;
         if (mode === 'designer') {
           this.cameraCtrl.setMode('designer');
+          if (this.aimSystem) this.aimSystem.setVisible(false);
         } else {
           this.cameraCtrl.setMode('aim');
           this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+          if (this.aimSystem) {
+            this.aimSystem.setVisible(true);
+            this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+          }
         }
       },
       onToolSelect: (tool) => {
@@ -285,8 +312,12 @@ class FairwayStudioApp {
       },
       onAddHole: () => {
         const h = this.courseManager.addHole(4);
-        this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
-        alert(`Hole ${h.number} (Par ${h.par}) created!`);
+        if (h) {
+          this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+          this.ui.showToast(`Hole ${h.number} (Par ${h.par}) created!`, 'success');
+        } else {
+          this.ui.showToast('Maximum of 9 holes reached for this course.', 'warning');
+        }
       },
       onHoleParChange: (par) => {
         this.courseManager.currentHole.par = par;
@@ -318,26 +349,47 @@ class FairwayStudioApp {
           this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
           this.updateHUDDisplay();
           this.registerSceneryShadows();
-          alert('Course successfully imported!');
+          this.ui.showToast('Course successfully imported!', 'success');
         } else {
-          alert('Failed to import course. Invalid format.');
+          this.ui.showToast('Failed to import course. Invalid format.', 'penalty');
         }
       },
       onClubSelect: (club) => {
         this.activeClub = club;
         this.swingEngine.setClub(club);
+        if (this.aimSystem) {
+          const pin = this.courseManager.currentHole.pinPosition;
+          const dx = pin.x - this.ball.position.x;
+          const dz = pin.z - this.ball.position.z;
+          const distToPin = Math.sqrt(dx * dx + dz * dz);
+          this.aimSystem.targetDistanceMeters = Math.min(distToPin, club.typicalCarryMeters);
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
         this.updateHUDDisplay();
       },
       onSwingAction: () => {
         if (this.activeMode !== 'play') return;
+        if (this.ball.state === BallState.IN_FLIGHT || this.ball.state === BallState.ROLLING) return;
         this.swingEngine.handleActionClick();
       },
       onAimAdjust: (deltaDeg) => {
-        if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT) return;
+        if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT || this.ball.state === BallState.ROLLING) return;
         this.currentAimAzimuth += deltaDeg;
         this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+        if (this.aimSystem) {
+          this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
         this.cameraCtrl.setAimHeading(this.ball.position, this.currentAimAzimuth);
         this.updateHUDDisplay();
+      },
+      onTargetDistanceAdjust: (deltaMeters) => {
+        if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT || this.ball.state === BallState.ROLLING) return;
+        if (this.aimSystem) {
+          this.aimSystem.adjustDistance(deltaMeters);
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+          this.updateHUDDisplay();
+        }
       },
       onCameraModeToggle: () => {
         const current = this.cameraCtrl.mode;
@@ -370,6 +422,14 @@ class FairwayStudioApp {
       if (idx > 0) {
         this.activeClub = GOLF_CLUBS[idx - 1];
         this.swingEngine.setClub(this.activeClub);
+        if (this.aimSystem) {
+          const pin = this.courseManager.currentHole.pinPosition;
+          const dx = pin.x - this.ball.position.x;
+          const dz = pin.z - this.ball.position.z;
+          const distToPin = Math.sqrt(dx * dx + dz * dz);
+          this.aimSystem.targetDistanceMeters = Math.min(distToPin, this.activeClub.typicalCarryMeters);
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
         this.updateHUDDisplay();
       }
     });
@@ -379,6 +439,14 @@ class FairwayStudioApp {
       if (idx < GOLF_CLUBS.length - 1) {
         this.activeClub = GOLF_CLUBS[idx + 1];
         this.swingEngine.setClub(this.activeClub);
+        if (this.aimSystem) {
+          const pin = this.courseManager.currentHole.pinPosition;
+          const dx = pin.x - this.ball.position.x;
+          const dz = pin.z - this.ball.position.z;
+          const distToPin = Math.sqrt(dx * dx + dz * dz);
+          this.aimSystem.targetDistanceMeters = Math.min(distToPin, this.activeClub.typicalCarryMeters);
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
         this.updateHUDDisplay();
       }
     });
@@ -395,6 +463,10 @@ class FairwayStudioApp {
     this.swingEngine.onShotExecute = (shot) => {
       this.courseManager.recordStroke(this.activeClub.category === 'putter');
       this.cameraCtrl.setMode('flight');
+      if (this.aimSystem) {
+        this.aimSystem.setVisible(false);
+      }
+      this.ui.setSwingEnabled(false);
       this.ball.launch(shot, this.courseManager.currentHole.pinPosition);
 
       // Feedback text based on accuracy
@@ -422,6 +494,24 @@ class FairwayStudioApp {
       if (state === BallState.AT_REST) {
         const holed = this.ball.checkHoleIn(this.courseManager.currentHole.pinPosition);
         if (!holed) {
+          // Re-enable swing button and aim beacon after shot comes to complete rest
+          this.ui.setSwingEnabled(true);
+          if (this.aimSystem && this.activeMode === 'play') {
+            const pin = this.courseManager.currentHole.pinPosition;
+            const dx = pin.x - this.ball.position.x;
+            const dz = pin.z - this.ball.position.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+            this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+            this.activeClub = getRecommendedClub(dist, lie === SurfaceType.GREEN);
+            this.swingEngine.setClub(this.activeClub);
+            this.swingEngine.setLie(lie);
+            this.aimSystem.targetDistanceMeters = Math.min(dist, this.activeClub.typicalCarryMeters);
+            this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+            this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+            this.aimSystem.setVisible(true);
+          }
+
           // Hold TV broadcast follow angle for 1.8s so player can admire their shot without abrupt zooming
           setTimeout(() => {
             if (this.ball.state !== BallState.AT_REST) return;
@@ -439,45 +529,63 @@ class FairwayStudioApp {
               this.cameraCtrl.focusOnPin(pin);
             }
 
-            // Update recommended club
-            const distToPin = Math.sqrt(dx * dx + dz * dz);
-            this.activeClub = getRecommendedClub(distToPin, lie === SurfaceType.GREEN);
-            this.swingEngine.setClub(this.activeClub);
-            this.swingEngine.setLie(lie);
-
             this.updateHUDDisplay();
           }, 1800);
         }
       } else if (state === BallState.IN_WATER) {
-        alert('Splash! Water hazard. 1 penalty stroke. Drop ball near hazard.');
+        this.ui.showToast('Splash! Water hazard. 1 penalty stroke.', 'penalty');
         this.courseManager.recordStroke();
         const prevZ = Math.max(40, this.ball.position.z - 15);
         this.ball.setPosition(this.ball.position.x, this.terrain.getElevation(this.ball.position.x, prevZ) + 0.1, prevZ);
         this.cameraCtrl.setMode('aim');
         this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+        this.ui.setSwingEnabled(true);
+        if (this.aimSystem) {
+          this.aimSystem.setVisible(true);
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
         this.updateHUDDisplay();
       }
     };
 
     this.ball.onHoleComplete = () => {
-      const score = this.courseManager.completeHole();
-      alert(`🎉 HOLE COMPLETED!\n${score.scoreText}\nStrokes: ${score.strokes} (Par ${score.par})`);
-      if (this.courseManager.currentHoleIndex < this.courseManager.courseData.holes.length - 1) {
-        this.courseManager.selectHole(this.courseManager.currentHoleIndex + 1);
-        this.placeBallAtActiveTee();
-      } else {
-        alert('Course finished! Outstanding round.');
-        this.placeBallAtActiveTee();
+      if (this.aimSystem) {
+        this.aimSystem.setVisible(false);
       }
+      this.ui.setSwingEnabled(false);
+      const score = this.courseManager.completeHole();
+      const isLastHole = this.courseManager.currentHoleIndex >= this.courseManager.courseData.holes.length - 1;
+
+      this.ui.showHoleCompleteModal(
+        score,
+        isLastHole,
+        () => {
+          if (!isLastHole) {
+            this.courseManager.selectHole(this.courseManager.currentHoleIndex + 1);
+            this.placeBallAtActiveTee();
+          } else {
+            this.courseManager.selectHole(0);
+            this.placeBallAtActiveTee();
+          }
+        },
+        () => {
+          this.placeBallAtActiveTee();
+        }
+      );
       this.updateHUDDisplay();
     };
 
     this.ball.onOutOfBounds = () => {
-      alert('⚠️ OUT OF BOUNDS! 1 penalty stroke. Ball returned to previous lie.');
+      this.ui.showToast('⚠️ OUT OF BOUNDS! 1 penalty stroke. Ball returned to previous lie.', 'warning');
       this.courseManager.recordStroke();
       this.ball.setPosition(this.ball.shotOrigin.x, this.ball.shotOrigin.y, this.ball.shotOrigin.z);
       this.cameraCtrl.setMode('aim');
       this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+      this.ui.setSwingEnabled(true);
+      if (this.aimSystem) {
+        this.aimSystem.setVisible(true);
+        this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+      }
       this.updateHUDDisplay();
     };
 
@@ -527,19 +635,49 @@ class FairwayStudioApp {
       this.swingEngine.windSpeedMps,
       this.swingEngine.windHeadingDeg
     );
+
+    if (this.aimSystem) {
+      const targetPos = this.aimSystem.targetPosition;
+      const elevDiff = targetPos.y - this.ball.position.y;
+      this.ui.updateAimStats(this.aimSystem.targetDistanceMeters, elevDiff);
+    }
   }
 
   private setupPointerInteractions() {
     this.scene.onPointerObservable.add((pointerInfo) => {
-      if (this.activeMode !== 'designer') return;
-
       if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
         this.isPointerDown = true;
-        this.handleDesignerClick(pointerInfo);
+        this.pointerDownClientX = pointerInfo.event.clientX;
+        this.pointerDownClientY = pointerInfo.event.clientY;
+
+        if (this.activeMode === 'designer') {
+          this.handleDesignerClick(pointerInfo);
+        }
       } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
         this.isPointerDown = false;
+        const dragDist = Math.hypot(
+          pointerInfo.event.clientX - this.pointerDownClientX,
+          pointerInfo.event.clientY - this.pointerDownClientY
+        );
+
+        if (this.activeMode === 'play' && dragDist < 8 && this.ball.state === BallState.AT_REST) {
+          const pick = pointerInfo.pickInfo;
+          if (pick && pick.hit && pick.pickedPoint && pick.pickedMesh?.name === 'GolfTerrain') {
+            const pt = pick.pickedPoint;
+            const dx = pt.x - this.ball.position.x;
+            const dz = pt.z - this.ball.position.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist > 2) {
+              this.aimSystem.setTargetPosition(this.ball.position, pt.x, pt.z);
+              this.currentAimAzimuth = this.aimSystem.aimHeadingDeg;
+              this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+              this.cameraCtrl.setAimHeading(this.ball.position, this.currentAimAzimuth);
+              this.updateHUDDisplay();
+            }
+          }
+        }
       } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
-        if (this.isPointerDown && this.activeDesignerTool === 'sculpt') {
+        if (this.isPointerDown && this.activeMode === 'designer' && this.activeDesignerTool === 'sculpt') {
           this.handleDesignerClick(pointerInfo);
         }
       }
@@ -635,6 +773,16 @@ class FairwayStudioApp {
     // Dynamic Toptracer broadcast camera during flight
     if (this.cameraCtrl.mode === 'flight') {
       this.cameraCtrl.updateFlightCamera(this.ball.position, this.ball.curVelocity);
+    }
+
+    // Update Aim System & flight prediction arc when player is aiming at rest
+    if (this.aimSystem && this.activeMode === 'play' && this.ball.state === BallState.AT_REST) {
+      this.aimSystem.update(
+        this.ball.position,
+        this.activeClub,
+        this.swingEngine.windSpeedMps,
+        this.swingEngine.windHeadingDeg
+      );
     }
 
     // Strictly enforce terrain clearance so camera never penetrates underground

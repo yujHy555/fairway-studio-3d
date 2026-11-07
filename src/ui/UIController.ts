@@ -1,4 +1,4 @@
-import { PresetFeature, GolfHole, ClubSpec } from '../core/Types';
+import { PresetFeature, GolfHole, ClubSpec, HoleScore } from '../core/Types';
 import { SurfaceType, SURFACE_PROPERTIES } from '../core/Constants';
 import { PRESET_FEATURES } from '../terrain/FeatureLibrary';
 import { GOLF_CLUBS } from '../game/ClubBag';
@@ -23,6 +23,7 @@ export interface UIEventCallbacks {
   onClubSelect: (club: ClubSpec) => void;
   onSwingAction: () => void;
   onAimAdjust: (deltaDeg: number) => void;
+  onTargetDistanceAdjust?: (deltaMeters: number) => void;
   onCameraModeToggle: () => void;
   onResetShot: () => void;
 }
@@ -30,6 +31,7 @@ export interface UIEventCallbacks {
 export class UIController {
   private callbacks: UIEventCallbacks;
   private currentMode: 'designer' | 'play' = 'play';
+  public isSwingEnabled: boolean = true;
 
   // Elements
   private container: HTMLDivElement;
@@ -258,11 +260,20 @@ export class UIController {
             <div class="hud-aim-controls">
               <button id="btn-aim-left" class="btn btn-sm">⟲ Aim Left [A]</button>
               <button id="btn-aim-right" class="btn btn-sm">Aim Right [D] ⟳</button>
+              <button id="btn-target-closer" class="btn btn-sm">🎯 Target - [S]</button>
+              <button id="btn-target-farther" class="btn btn-sm">Target + [W]</button>
               <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
               <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
             </div>
+            <div class="hud-aim-readout" id="hud-aim-readout">
+              <span id="hud-aim-target-dist">TARGET: 220m (241 yds)</span> | 
+              <span id="hud-aim-elev">ELEV: +0.0m</span>
+            </div>
           </div>
         </div>
+
+        <!-- In-App Notification Toast Container -->
+        <div id="hud-toast-container" class="hud-toast-container"></div>
       </div>
     `;
 
@@ -440,6 +451,134 @@ export class UIController {
       : `In flight... ${totalMeters}m`;
   }
 
+  public setSwingEnabled(enabled: boolean) {
+    this.isSwingEnabled = enabled;
+    const swingBtn = document.getElementById('btn-swing-action') as HTMLButtonElement | null;
+    const swingBtnText = document.querySelector('.swing-main-btn-text') as HTMLElement | null;
+    if (swingBtn) {
+      swingBtn.disabled = !enabled;
+      if (!enabled) {
+        swingBtn.classList.add('btn-swing-disabled');
+        if (swingBtnText) swingBtnText.innerText = 'BALL IN FLIGHT...';
+        this.swingFeedback.innerText = 'BALL IN MOTION — FREE ORBIT CAMERA ACTIVE';
+        this.swingFeedback.className = 'swing-feedback feedback-active';
+      } else {
+        swingBtn.classList.remove('btn-swing-disabled');
+        if (swingBtnText) swingBtnText.innerText = 'SWING [SPACE]';
+        this.swingFeedback.innerText = 'PRESS SPACE / CLICK TO SWING';
+        this.swingFeedback.className = 'swing-feedback';
+      }
+    }
+  }
+
+  public updateAimStats(targetDistMeters: number, elevationDiffMeters: number) {
+    const distElem = document.getElementById('hud-aim-target-dist');
+    const elevElem = document.getElementById('hud-aim-elev');
+    if (distElem) {
+      const yds = Math.round(targetDistMeters * 1.09361);
+      distElem.innerText = `TARGET: ${Math.round(targetDistMeters)}m (${yds} yds)`;
+    }
+    if (elevElem) {
+      const sign = elevationDiffMeters >= 0 ? '+' : '';
+      elevElem.innerText = `ELEV: ${sign}${elevationDiffMeters.toFixed(1)}m`;
+    }
+  }
+
+  public showToast(message: string, type: 'info' | 'warning' | 'penalty' | 'success' = 'info', durationMs = 3500) {
+    const toastContainer = document.getElementById('hud-toast-container');
+    if (!toastContainer) return;
+
+    const toast = document.createElement('div');
+    toast.className = `hud-toast hud-toast-${type}`;
+    toast.innerText = message;
+    toastContainer.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.add('hud-toast-visible');
+    });
+
+    setTimeout(() => {
+      toast.classList.remove('hud-toast-visible');
+      setTimeout(() => toast.remove(), 400);
+    }, durationMs);
+  }
+
+  public showHoleCompleteModal(
+    score: HoleScore,
+    isCourseComplete: boolean,
+    onNext: () => void,
+    onReplay: () => void
+  ) {
+    const existing = document.getElementById('modal-hole-complete');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-hole-complete';
+    modal.className = 'modal-overlay';
+
+    const diff = score.strokes - score.par;
+    const badgeClass = diff <= -2 ? 'badge-eagle' :
+                       diff === -1 ? 'badge-birdie' :
+                       diff === 0 ? 'badge-par' : 'badge-bogey';
+
+    modal.innerHTML = `
+      <div class="modal-card celebration-card">
+        <div class="celebration-confetti">✨ ⛳ 🎉</div>
+        <h2 class="celebration-title">HOLE ${score.holeNumber} COMPLETED!</h2>
+        <div class="score-badge ${badgeClass}">${score.scoreText}</div>
+
+        <div class="celebration-stats-grid">
+          <div class="stat-col">
+            <div class="stat-val">${score.strokes}</div>
+            <div class="stat-lbl">STROKES</div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-col">
+            <div class="stat-val">${score.par}</div>
+            <div class="stat-lbl">PAR</div>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-col">
+            <div class="stat-val">${score.putts}</div>
+            <div class="stat-lbl">PUTTS</div>
+          </div>
+        </div>
+
+        <div class="celebration-actions">
+          ${!isCourseComplete ? `
+            <button id="btn-next-hole" class="btn btn-celebration-next">
+              NEXT HOLE ➔
+            </button>
+          ` : `
+            <button id="btn-finish-round" class="btn btn-celebration-next">
+              ROUND COMPLETE 🏆
+            </button>
+          `}
+          <button id="btn-replay-hole" class="btn btn-celebration-replay">
+            ↺ REPLAY HOLE
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    document.getElementById('btn-next-hole')?.addEventListener('click', () => {
+      modal.remove();
+      onNext();
+    });
+
+    document.getElementById('btn-finish-round')?.addEventListener('click', () => {
+      modal.remove();
+      onNext();
+    });
+
+    document.getElementById('btn-replay-hole')?.addEventListener('click', () => {
+      modal.remove();
+      onReplay();
+    });
+  }
+
   public toggleMode(): 'designer' | 'play' {
     if (this.currentMode === 'play') {
       this.currentMode = 'designer';
@@ -576,6 +715,7 @@ export class UIController {
 
     // Play Mode Controls
     document.getElementById('btn-swing-action')!.addEventListener('click', () => {
+      if (!this.isSwingEnabled) return;
       this.callbacks.onSwingAction();
     });
 
@@ -585,6 +725,14 @@ export class UIController {
 
     document.getElementById('btn-aim-right')!.addEventListener('click', () => {
       this.callbacks.onAimAdjust(2.0);
+    });
+
+    document.getElementById('btn-target-closer')?.addEventListener('click', () => {
+      this.callbacks.onTargetDistanceAdjust?.(-10);
+    });
+
+    document.getElementById('btn-target-farther')?.addEventListener('click', () => {
+      this.callbacks.onTargetDistanceAdjust?.(10);
     });
 
     document.getElementById('btn-camera-view')!.addEventListener('click', () => {
@@ -599,11 +747,16 @@ export class UIController {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') {
         e.preventDefault();
+        if (!this.isSwingEnabled) return;
         this.callbacks.onSwingAction();
       } else if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
         this.callbacks.onAimAdjust(-1.5);
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         this.callbacks.onAimAdjust(1.5);
+      } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+        this.callbacks.onTargetDistanceAdjust?.(10);
+      } else if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+        this.callbacks.onTargetDistanceAdjust?.(-10);
       } else if (e.code === 'KeyC') {
         this.callbacks.onCameraModeToggle();
       } else if (e.code === 'KeyR') {

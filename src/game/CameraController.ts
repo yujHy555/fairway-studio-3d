@@ -16,6 +16,9 @@ export class CameraController {
   private targetPosition: Vector3 = Vector3.Zero();
   private flightCameraOffset: Vector3 = new Vector3(0, 4, -12);
 
+  // User interaction tracking
+  public isUserDragging: boolean = false;
+
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
 
@@ -28,6 +31,9 @@ export class CameraController {
       this.scene
     );
     this.camera.attachControl(canvas, true);
+
+    canvas.addEventListener('pointerdown', () => { this.isUserDragging = true; });
+    window.addEventListener('pointerup', () => { this.isUserDragging = false; });
 
     // Generous, unrestricted view angles while strictly keeping camera above ground
     this.camera.lowerBetaLimit = 0.05;              // Can look straight down from high overhead
@@ -86,37 +92,30 @@ export class CameraController {
 
   /**
    * AAA Broadcast Flight Follow-Cam (Toptracer TV Angle)
-   * Dynamically tracks the ball in flight with smooth interpolation,
-   * framing both the ball and the distant green without zooming in close.
+   * Smoothly tracks the ball in flight as its focal target while
+   * allowing the player complete interactive freedom to orbit, tilt, and zoom!
    */
   public updateFlightCamera(ballPos: Vector3, ballVelocity: Vector3D) {
     if (this.mode !== 'flight') return;
 
-    // Target smoothly interpolates to ball position
+    // Camera target always smoothly follows the ball in flight
     const safeTarget = new Vector3(ballPos.x, Math.max(0.8, ballPos.y), ballPos.z);
     this.camera.target = Vector3.Lerp(this.camera.target, safeTarget, 0.22);
 
+    // If player is actively mouse-dragging / controlling the view, do not override their manual angles!
+    if (this.isUserDragging) return;
+
     const horizontalSpeed = Math.sqrt(ballVelocity.x * ballVelocity.x + ballVelocity.z * ballVelocity.z);
 
-    if (horizontalSpeed > 1.0) {
+    if (horizontalSpeed > 1.2) {
       const headingRad = Math.atan2(ballVelocity.x, ballVelocity.z);
       const targetAlpha = -headingRad - Math.PI / 2;
 
-      // Softly follow flight azimuth
+      // Softly follow flight azimuth if user is not actively steering
       let alphaDiff = targetAlpha - this.camera.alpha;
       while (alphaDiff < -Math.PI) alphaDiff += Math.PI * 2;
       while (alphaDiff > Math.PI) alphaDiff -= Math.PI * 2;
-      this.camera.alpha += alphaDiff * 0.08;
-
-      // Distance and angle scale with ball altitude
-      const altitude = Math.max(0, ballPos.y);
-      this.camera.radius = 16.0 + Math.min(18.0, altitude * 0.35);
-      this.camera.beta = Math.max(Math.PI / 3.2, Math.PI / 2.7 - altitude * 0.006);
-    } else {
-      // Ball is settling / rolling on ground: DO NOT zoom into the ball!
-      // Maintain wide expansive TV broadcast distance so player can see the whole green / fairway
-      this.camera.radius = Math.max(18.0, this.camera.radius);
-      this.camera.beta = Math.PI / 2.9;
+      this.camera.alpha += alphaDiff * 0.04; // Gentle auto-assist
     }
   }
 
