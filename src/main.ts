@@ -1,0 +1,542 @@
+import {
+  Engine,
+  Scene,
+  Vector3,
+  Color3,
+  Color4,
+  HemisphericLight,
+  DirectionalLight,
+  PointerEventTypes,
+  MeshBuilder,
+  StandardMaterial
+} from '@babylonjs/core';
+
+import './style.css';
+import { GOLF_CONSTANTS, SurfaceType } from './core/Constants';
+import { PresetFeature, ClubSpec } from './core/Types';
+import { HavokManager } from './physics/HavokManager';
+import { TerrainGrid } from './terrain/TerrainGrid';
+import { SceneryFactory } from './terrain/Scenery';
+import { GreenContourVisualizer } from './terrain/GreenContourVisualizer';
+import { Ball, BallState } from './game/Ball';
+import { GOLF_CLUBS, getRecommendedClub } from './game/ClubBag';
+import { SwingEngine } from './game/SwingEngine';
+import { CameraController } from './game/CameraController';
+import { CourseManager } from './game/CourseManager';
+import { UIController } from './ui/UIController';
+
+class FairwayStudioApp {
+  private canvas: HTMLCanvasElement;
+  private engine: Engine;
+  private scene: Scene;
+
+  private havok: HavokManager;
+  private terrain!: TerrainGrid;
+  private scenery!: SceneryFactory;
+  private courseManager!: CourseManager;
+  private greenVisualizer!: GreenContourVisualizer;
+  private ball!: Ball;
+  private swingEngine!: SwingEngine;
+  private cameraCtrl!: CameraController;
+  private ui!: UIController;
+
+  // Designer State
+  private activeMode: 'designer' | 'play' = 'play';
+  private activeDesignerTool: 'sculpt' | 'stamp' | 'set_tee' | 'set_pin' = 'stamp';
+  private activeSculptMode: 'raise' | 'lower' | 'flatten' | 'smooth' = 'raise';
+  private brushRadius = 12;
+  private brushStrength = 0.5;
+  private targetSurface: SurfaceType = SurfaceType.FAIRWAY;
+  private activePreset: PresetFeature | null = null;
+  private isPointerDown = false;
+
+  // Grid mesh
+  private gridMesh: ReturnType<typeof MeshBuilder.CreateGround> | null = null;
+  private show1mGrid = false;
+
+  // Play state
+  private activeClub: ClubSpec = GOLF_CLUBS[0];
+  private currentAimAzimuth = 0; // degrees
+
+  constructor() {
+    this.canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
+    this.engine = new Engine(this.canvas, true, { preserveDrawingBuffer: true, stencil: true });
+    this.scene = new Scene(this.engine);
+    this.scene.clearColor = new Color4(0.48, 0.72, 0.88, 1.0); // Crisp blue sky
+
+    this.havok = new HavokManager(this.scene);
+  }
+
+  public async start() {
+    // 1. Setup lighting & atmosphere
+    this.setupLighting();
+
+    // 2. Initialize Havok Physics
+    await this.havok.initialize();
+
+    // 3. Initialize Terrain
+    this.terrain = new TerrainGrid(this.scene);
+    this.terrain.buildMesh();
+    this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
+
+    // 4. Initialize Scenery & Course
+    this.scenery = new SceneryFactory(this.scene);
+    this.courseManager = new CourseManager(this.terrain, this.scenery);
+
+    // 5. Green Contours
+    this.greenVisualizer = new GreenContourVisualizer(this.scene, this.terrain);
+
+    // 6. Camera & Controls
+    this.cameraCtrl = new CameraController(this.scene, this.canvas);
+
+    // 7. Ball & Swing Engine
+    this.ball = new Ball(this.scene, this.terrain, this.havok);
+    this.swingEngine = new SwingEngine(this.activeClub);
+
+    // Place ball at Hole 1 Tee
+    this.placeBallAtActiveTee();
+
+    // 8. Setup UI & Event Handlers
+    this.setupUI();
+
+    // 9. Input & Pointer Interactions
+    this.setupPointerInteractions();
+
+    // 10. Start Render Loop
+    this.engine.runRenderLoop(() => {
+      const dt = this.engine.getDeltaTime() / 1000;
+      this.update(dt);
+      this.scene.render();
+    });
+
+    window.addEventListener('resize', () => {
+      this.engine.resize();
+    });
+
+    // Update aim arc initially
+    this.updateAimAndShotPreview();
+  }
+
+  private setupLighting() {
+    // Ambient Sky & Ground light
+    const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
+    hemiLight.intensity = 0.85;
+    hemiLight.diffuse = new Color3(0.95, 0.98, 1.0);
+    hemiLight.groundColor = new Color3(0.25, 0.35, 0.2);
+
+    // Warm Sun Light
+    const sun = new DirectionalLight('sunLight', new Vector3(-0.6, -1.0, -0.4), this.scene);
+    sun.position = new Vector3(110, 150, 200);
+    sun.intensity = 0.9;
+    sun.diffuse = new Color3(1.0, 0.95, 0.85);
+  }
+
+  private placeBallAtActiveTee() {
+    const tee = this.courseManager.currentHole.teePosition;
+    const groundY = this.terrain.getElevation(tee.x, tee.z);
+    this.ball.setPosition(tee.x, groundY + GOLF_CONSTANTS.BALL_RADIUS + 0.05, tee.z);
+
+    // Aim directly at pin
+    const pin = this.courseManager.currentHole.pinPosition;
+    const dx = pin.x - tee.x;
+    const dz = pin.z - tee.z;
+    this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+    this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+
+    // Reset camera to behind-ball aim
+    this.cameraCtrl.setMode('aim');
+    this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+
+    // Auto-select recommended club
+    const distToPin = Math.sqrt(dx * dx + dz * dz);
+    this.activeClub = getRecommendedClub(distToPin, false);
+    this.swingEngine.setClub(this.activeClub);
+  }
+
+  private setupUI() {
+    this.ui = new UIController({
+      onModeToggle: (mode) => {
+        this.activeMode = mode;
+        if (mode === 'designer') {
+          this.cameraCtrl.setMode('designer');
+          this.ball.clearAimArc();
+        } else {
+          this.cameraCtrl.setMode('aim');
+          this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+          this.updateAimAndShotPreview();
+        }
+      },
+      onToolSelect: (tool) => {
+        this.activeDesignerTool = tool;
+      },
+      onSculptModeSelect: (mode) => {
+        this.activeSculptMode = mode;
+      },
+      onPresetSelect: (preset) => {
+        this.activePreset = preset;
+        this.activeDesignerTool = 'stamp';
+      },
+      onBrushRadiusChange: (radius) => {
+        this.brushRadius = radius;
+      },
+      onBrushStrengthChange: (strength) => {
+        this.brushStrength = strength;
+      },
+      onTargetSurfaceSelect: (surf) => {
+        this.targetSurface = surf;
+      },
+      onHoleSelect: (idx) => {
+        this.courseManager.selectHole(idx);
+        this.placeBallAtActiveTee();
+        this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+        this.updateHUDDisplay();
+      },
+      onAddHole: () => {
+        const h = this.courseManager.addHole(4);
+        this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+        alert(`Hole ${h.number} (Par ${h.par}) created!`);
+      },
+      onHoleParChange: (par) => {
+        this.courseManager.currentHole.par = par;
+        this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+        this.updateHUDDisplay();
+      },
+      onToggleGrid: () => {
+        return this.toggle1mGrid();
+      },
+      onToggleContours: () => {
+        return this.greenVisualizer.toggleVisible();
+      },
+      onExportCourse: () => {
+        const json = this.courseManager.exportCourseJSON();
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.courseManager.courseData.name.replace(/\s+/g, '_')}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      onImportCourse: (json) => {
+        const success = this.courseManager.importCourseJSON(json);
+        if (success) {
+          this.greenVisualizer.rebuildSlopeGrid();
+          this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
+          this.placeBallAtActiveTee();
+          this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+          this.updateHUDDisplay();
+          alert('Course successfully imported!');
+        } else {
+          alert('Failed to import course. Invalid format.');
+        }
+      },
+      onClubSelect: (club) => {
+        this.activeClub = club;
+        this.swingEngine.setClub(club);
+        this.updateAimAndShotPreview();
+        this.updateHUDDisplay();
+      },
+      onSwingAction: () => {
+        if (this.activeMode !== 'play') return;
+        this.swingEngine.handleActionClick();
+      },
+      onAimAdjust: (deltaDeg) => {
+        if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT) return;
+        this.currentAimAzimuth += deltaDeg;
+        this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+        this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+        this.updateAimAndShotPreview();
+      },
+      onCameraModeToggle: () => {
+        const current = this.cameraCtrl.mode;
+        if (current === 'aim') this.cameraCtrl.setMode('green');
+        else if (current === 'green') this.cameraCtrl.setMode('designer');
+        else this.cameraCtrl.setMode('aim');
+
+        if (this.cameraCtrl.mode === 'aim') {
+          this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+        } else if (this.cameraCtrl.mode === 'green') {
+          this.cameraCtrl.focusOnPin(this.courseManager.currentHole.pinPosition);
+        }
+      },
+      onResetShot: () => {
+        this.placeBallAtActiveTee();
+        this.updateHUDDisplay();
+      }
+    });
+
+    // Club selector Prev / Next buttons
+    document.getElementById('btn-prev-club')?.addEventListener('click', () => {
+      const idx = GOLF_CLUBS.findIndex(c => c.id === this.activeClub.id);
+      if (idx > 0) {
+        this.activeClub = GOLF_CLUBS[idx - 1];
+        this.swingEngine.setClub(this.activeClub);
+        this.updateAimAndShotPreview();
+        this.updateHUDDisplay();
+      }
+    });
+
+    document.getElementById('btn-next-club')?.addEventListener('click', () => {
+      const idx = GOLF_CLUBS.findIndex(c => c.id === this.activeClub.id);
+      if (idx < GOLF_CLUBS.length - 1) {
+        this.activeClub = GOLF_CLUBS[idx + 1];
+        this.swingEngine.setClub(this.activeClub);
+        this.updateAimAndShotPreview();
+        this.updateHUDDisplay();
+      }
+    });
+
+    // Swing Engine hooks
+    this.swingEngine.onUpdate = (progress, phase) => {
+      this.ui.updateSwingMeter(progress, phase);
+    };
+
+    this.swingEngine.onShotExecute = (shot) => {
+      this.courseManager.recordStroke(this.activeClub.category === 'putter');
+      this.cameraCtrl.setMode('flight');
+      this.ball.clearAimArc();
+      this.ball.launch(shot, this.courseManager.currentHole.pinPosition);
+
+      // Feedback text based on accuracy
+      if (Math.abs(shot.accuracyOffset) < 0.12) {
+        this.ui.setSwingFeedbackText('PERFECT STRIKE! 🌟', 'perfect');
+      } else if (shot.accuracyOffset > 0.45) {
+        this.ui.setSwingFeedbackText('PUSH SLICE ➡️', 'slice');
+      } else if (shot.accuracyOffset < -0.45) {
+        this.ui.setSwingFeedbackText('SNAP HOOK ⬅️', 'hook');
+      } else if (shot.accuracyOffset > 0) {
+        this.ui.setSwingFeedbackText('BABY FADE ↗️', 'fade');
+      } else {
+        this.ui.setSwingFeedbackText('NICE DRAW ↖️', 'draw');
+      }
+
+      this.updateHUDDisplay();
+    };
+
+    // Ball state changes
+    this.ball.onStateChange = (state, lie) => {
+      if (state === BallState.AT_REST) {
+        // Check if ball went in the cup
+        const holed = this.ball.checkHoleIn(this.courseManager.currentHole.pinPosition);
+        if (!holed) {
+          // Switch back to aiming mode
+          this.cameraCtrl.setMode(lie === SurfaceType.GREEN ? 'green' : 'aim');
+          // Re-aim at pin
+          const pin = this.courseManager.currentHole.pinPosition;
+          const dx = pin.x - this.ball.position.x;
+          const dz = pin.z - this.ball.position.z;
+          this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+          this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+          this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+
+          // Update recommended club
+          const distToPin = Math.sqrt(dx * dx + dz * dz);
+          this.activeClub = getRecommendedClub(distToPin, lie === SurfaceType.GREEN);
+          this.swingEngine.setClub(this.activeClub);
+          this.swingEngine.setLie(lie);
+
+          this.updateAimAndShotPreview();
+          this.updateHUDDisplay();
+        }
+      } else if (state === BallState.IN_WATER) {
+        alert('Splash! Water hazard. 1 penalty stroke. Drop ball near hazard.');
+        this.courseManager.recordStroke();
+        // Drop ball back on fairway/rough near water edge
+        const prevZ = Math.max(40, this.ball.position.z - 15);
+        this.ball.setPosition(this.ball.position.x, this.terrain.getElevation(this.ball.position.x, prevZ) + 0.1, prevZ);
+        this.cameraCtrl.setMode('aim');
+        this.cameraCtrl.updateAimCamera(this.ball.position, this.currentAimAzimuth);
+        this.updateAimAndShotPreview();
+        this.updateHUDDisplay();
+      }
+    };
+
+    this.ball.onHoleComplete = () => {
+      const score = this.courseManager.completeHole();
+      alert(`🎉 HOLE COMPLETED!\n${score.scoreText}\nStrokes: ${score.strokes} (Par ${score.par})`);
+      // Proceed to next hole if available
+      if (this.courseManager.currentHoleIndex < this.courseManager.courseData.holes.length - 1) {
+        this.courseManager.selectHole(this.courseManager.currentHoleIndex + 1);
+        this.placeBallAtActiveTee();
+      } else {
+        alert('Course finished! Outstanding round.');
+        this.placeBallAtActiveTee();
+      }
+      this.updateHUDDisplay();
+    };
+
+    this.ui.updateHolesList(this.courseManager.courseData.holes, this.courseManager.currentHoleIndex);
+    this.updateHUDDisplay();
+  }
+
+  private toggle1mGrid(): boolean {
+    this.show1mGrid = !this.show1mGrid;
+    if (this.show1mGrid) {
+      if (!this.gridMesh) {
+        this.gridMesh = MeshBuilder.CreateGround('gridOverlay', {
+          width: this.terrain.width,
+          height: this.terrain.length,
+          subdivisions: this.terrain.width
+        }, this.scene);
+        this.gridMesh.position.set(this.terrain.width * 0.5, 0.05, this.terrain.length * 0.5);
+
+        const mat = new StandardMaterial('gridMat', this.scene);
+        mat.wireframe = true;
+        mat.diffuseColor = new Color3(1, 1, 1);
+        mat.alpha = 0.18;
+        this.gridMesh.material = mat;
+      }
+      this.gridMesh.setEnabled(true);
+    } else {
+      if (this.gridMesh) {
+        this.gridMesh.setEnabled(false);
+      }
+    }
+    return this.show1mGrid;
+  }
+
+  private updateAimAndShotPreview() {
+    if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT) return;
+
+    const shotPreview = {
+      club: this.activeClub,
+      powerPercent: 1.0,
+      accuracyOffset: 0,
+      launchAngleDeg: this.activeClub.loftDegrees,
+      launchSpeedMps: this.activeClub.baseBallSpeedMps,
+      backspinRPM: this.activeClub.baseBackspinRPM,
+      sidespinRPM: 0,
+      azimuthDeg: this.currentAimAzimuth,
+      windSpeedMps: this.swingEngine.windSpeedMps,
+      windHeadingDeg: this.swingEngine.windHeadingDeg
+    };
+
+    this.ball.updateAimArc(shotPreview);
+  }
+
+  private updateHUDDisplay() {
+    const pin = this.courseManager.currentHole.pinPosition;
+    const dx = pin.x - this.ball.position.x;
+    const dz = pin.z - this.ball.position.z;
+    const distToPin = Math.sqrt(dx * dx + dz * dz);
+
+    this.ui.updateHUD(
+      distToPin,
+      this.ball.currentSurface,
+      this.activeClub,
+      this.courseManager.currentStrokes,
+      this.courseManager.currentHole,
+      this.swingEngine.windSpeedMps,
+      this.swingEngine.windHeadingDeg
+    );
+  }
+
+  private setupPointerInteractions() {
+    this.scene.onPointerObservable.add((pointerInfo) => {
+      if (this.activeMode !== 'designer') return;
+
+      if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
+        this.isPointerDown = true;
+        this.handleDesignerClick(pointerInfo);
+      } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
+        this.isPointerDown = false;
+      } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
+        if (this.isPointerDown && this.activeDesignerTool === 'sculpt') {
+          this.handleDesignerClick(pointerInfo);
+        }
+      }
+    });
+  }
+
+  private handleDesignerClick(pointerInfo: any) {
+    const pickInfo = pointerInfo.pickInfo;
+    if (!pickInfo || !pickInfo.hit || !pickInfo.pickedPoint) return;
+
+    // Grid coordinates (snapped to 1m resolution)
+    const gx = Math.round(pickInfo.pickedPoint.x);
+    const gz = Math.round(pickInfo.pickedPoint.z);
+
+    if (this.activeDesignerTool === 'sculpt') {
+      this.terrain.applySculptBrush(
+        gx,
+        gz,
+        this.brushRadius,
+        this.brushStrength,
+        this.activeSculptMode,
+        this.targetSurface
+      );
+      this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
+      this.greenVisualizer.rebuildSlopeGrid();
+
+    } else if (this.activeDesignerTool === 'stamp') {
+      if (!this.activePreset) return;
+
+      const p = this.activePreset;
+      if (p.category === 'scenery') {
+        const gy = this.terrain.getElevation(gx, gz);
+        if (p.sceneryType === 'pine') this.scenery.createPineTree(gx, gy, gz);
+        else if (p.sceneryType === 'oak') this.scenery.createOakTree(gx, gy, gz);
+        else if (p.sceneryType === 'rock_cluster') this.scenery.createRockCluster(gx, gy, gz);
+        else if (p.sceneryType === 'dam_wall') this.scenery.createDamWall(gx, gy, gz, p.width, 4);
+      } else {
+        // Geometric feature stamp (bunkers, greens, tees, fairways, water)
+        this.terrain.stampFeature(
+          gx,
+          gz,
+          p.width,
+          p.length,
+          0,
+          p.surfaceType,
+          p.depthProfile ?? 0,
+          p.lipHeight ?? 0
+        );
+
+        if (p.surfaceType === SurfaceType.WATER) {
+          const gy = this.terrain.getElevation(gx, gz);
+          this.scenery.createWaterPlane(gx, gy + 1.2, gz, p.width, p.length);
+        }
+
+        this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
+        if (p.surfaceType === SurfaceType.GREEN) {
+          this.greenVisualizer.rebuildSlopeGrid();
+        }
+      }
+
+    } else if (this.activeDesignerTool === 'set_tee') {
+      const hole = this.courseManager.currentHole;
+      hole.teePosition.x = gx;
+      hole.teePosition.z = gz;
+      this.courseManager.setupHoleVisuals();
+      this.placeBallAtActiveTee();
+      this.updateHUDDisplay();
+
+    } else if (this.activeDesignerTool === 'set_pin') {
+      const hole = this.courseManager.currentHole;
+      hole.pinPosition.x = gx;
+      hole.pinPosition.z = gz;
+      this.courseManager.setupHoleVisuals();
+      this.updateAimAndShotPreview();
+      this.updateHUDDisplay();
+    }
+  }
+
+  private update(dt: number) {
+    // Update Swing Engine
+    this.swingEngine.update(dt);
+
+    // Update flight camera if ball is moving
+    if (this.cameraCtrl.mode === 'flight') {
+      this.cameraCtrl.updateFlightCamera(this.ball.position, {
+        x: (this.ball as any).curVelocity.x,
+        y: (this.ball as any).curVelocity.y,
+        z: (this.ball as any).curVelocity.z
+      });
+    }
+  }
+}
+
+// Bootstrap application on page load
+window.addEventListener('DOMContentLoaded', async () => {
+  const app = new FairwayStudioApp();
+  await app.start();
+});
