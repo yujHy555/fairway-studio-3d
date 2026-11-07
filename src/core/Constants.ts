@@ -88,15 +88,14 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
 
 // Real-world golf specifications & visual tuning
 export const GOLF_CONSTANTS = {
-  // Ball specs: Aerodynamic calculations use authentic mass/cross section,
-  // while render radius is tuned for crisp 3D visibility across 300-meter holes
+  // Ball specs: Authentic 1:1 USGA regulation dimensions (42.67 mm diameter)
   BALL_MASS: 0.04593,             // 45.93 grams
-  BALL_PHYSICS_RADIUS: 0.021335,  // 42.67 mm USGA diameter
+  BALL_PHYSICS_RADIUS: 0.021335,  // 42.67 mm USGA regulation diameter
   BALL_CROSS_SECTION: Math.PI * Math.pow(0.021335, 2), // ~0.00143 m^2
-  BALL_RENDER_RADIUS: 0.12,       // Visual radius (24cm diameter for crisp AAA visibility across 350m holes)
-  BALL_RADIUS: 0.12,
-  CUP_RADIUS: 0.15,               // Scaled cup opening for high visual clarity
-  CUP_DEPTH: 0.16,
+  BALL_RENDER_RADIUS: 0.021335,   // Actual regulation golf ball radius (~2.13 cm)
+  BALL_RADIUS: 0.021335,
+  CUP_RADIUS: 0.054,              // USGA regulation 108 mm (4.25 in) cup diameter
+  CUP_DEPTH: 0.1016,              // USGA regulation 101.6 mm (4.0 in) cup depth
   
   // Aerodynamics & Environment
   AIR_DENSITY: 1.204,             // kg/m^3 at 20 deg C

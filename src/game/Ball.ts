@@ -45,7 +45,8 @@ export class Ball {
 
   // Visual trajectory Toptracer ribbon (active only during shot)
   private tracerPoints: Vector3[] = [];
-  private tracerMesh: LinesMesh | null = null;
+  private tracerMesh: Mesh | null = null;
+  private tracerMaterial: StandardMaterial;
 
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
@@ -55,18 +56,26 @@ export class Ball {
     this.scene = scene;
     this.terrain = terrain;
 
-    // Create 3D Golf Ball Mesh with prominent visibility
+    // Create 3D Golf Ball Mesh with authentic 1:1 regulation size
     this.mesh = MeshBuilder.CreateSphere('golfBall', {
       diameter: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 2,
-      segments: 10
+      segments: 16
     }, this.scene);
 
     const mat = new StandardMaterial('ballMat', this.scene);
-    mat.diffuseColor = new Color3(1.0, 1.0, 1.0);
-    mat.specularColor = new Color3(0.8, 0.8, 0.8);
-    mat.specularPower = 64;
-    mat.emissiveColor = new Color3(0.08, 0.08, 0.08); // Subtle glow for visibility against dark grass
+    mat.diffuseColor = new Color3(0.98, 0.98, 1.0);
+    mat.specularColor = new Color3(0.9, 0.9, 0.9);
+    mat.specularPower = 96;
+    mat.emissiveColor = new Color3(0.08, 0.08, 0.08); // Subtle visibility against dark grass
     this.mesh.material = mat;
+
+    // Toptracer luminous ribbon material
+    this.tracerMaterial = new StandardMaterial('toptracerMat', this.scene);
+    this.tracerMaterial.diffuseColor = new Color3(1.0, 0.45, 0.05);
+    this.tracerMaterial.emissiveColor = new Color3(1.0, 0.35, 0.05); // Vibrant glowing broadcast neon red-orange
+    this.tracerMaterial.specularColor = new Color3(0, 0, 0);
+    this.tracerMaterial.disableLighting = true; // Always 100% luminous in the sky
+    this.tracerMaterial.alpha = 0.92;
 
     // Register frame loop for flight aerodynamics & state transitions
     this.scene.onBeforeRenderObservable.add(() => {
@@ -312,16 +321,24 @@ export class Ball {
 
   // PGA Tour / Toptracer live flight ribbon (active strictly while ball is moving)
   private addTracerPoint(pt: Vector3) {
-    this.tracerPoints.push(pt);
-    if (this.tracerPoints.length > 2) {
+    if (this.tracerPoints.length > 0) {
+      const last = this.tracerPoints[this.tracerPoints.length - 1];
+      if (Vector3.Distance(last, pt) < 0.45) return; // Sample at ~0.5m intervals for silky smooth ribbon
+    }
+    this.tracerPoints.push(pt.clone());
+
+    if (this.tracerPoints.length >= 2) {
       if (this.tracerMesh) {
         this.tracerMesh.dispose();
       }
-      this.tracerMesh = MeshBuilder.CreateLines('ballToptracer', {
-        points: this.tracerPoints,
+      this.tracerMesh = MeshBuilder.CreateTube('ballToptracer', {
+        path: this.tracerPoints,
+        radius: 0.07, // 14cm thick glowing 3D trajectory beam
+        tessellation: 6,
         updatable: false
       }, this.scene);
-      this.tracerMesh.color = new Color3(1.0, 0.28, 0.05); // PGA broadcast red-orange tracer
+      this.tracerMesh.material = this.tracerMaterial;
+      this.tracerMesh.isPickable = false;
     }
   }
 

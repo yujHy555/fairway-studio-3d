@@ -9,8 +9,10 @@ import {
   PointerEventTypes,
   MeshBuilder,
   StandardMaterial,
-  ShadowGenerator
+  ShadowGenerator,
+  HDRCubeTexture
 } from '@babylonjs/core';
+import '@babylonjs/core/Materials/Textures/Loaders/hdrTextureLoader.js';
 
 import './style.css';
 import { GOLF_CONSTANTS, SurfaceType } from './core/Constants';
@@ -137,13 +139,37 @@ class FairwayStudioApp {
   }
 
   private setupLighting() {
-    // Ambient Sky & Ground light
+    // 1. HDRI Dome Environment Lighting & 360 Sky (Misty Pines 4K)
+    try {
+      const hdrTexture = new HDRCubeTexture(
+        '/misty_pines_4k.hdr',
+        this.scene,
+        512,
+        false,
+        true,
+        false,
+        true
+      );
+      this.scene.environmentTexture = hdrTexture;
+      this.scene.environmentIntensity = 0.88;
+
+      const skybox = this.scene.createDefaultSkybox(hdrTexture, true, 2200, 0.05);
+      if (skybox) {
+        skybox.name = 'MistyPinesSkybox';
+        skybox.isPickable = false;
+        skybox.position.set(110, 0, 230);
+      }
+    } catch (e) {
+      console.warn('HDRI environment fallback:', e);
+    }
+
+    // 2. Ambient Sky & Ground light
     const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
-    hemiLight.intensity = 0.72;
+    hemiLight.intensity = 0.52;
     hemiLight.diffuse = new Color3(0.92, 0.96, 1.0);
     hemiLight.groundColor = new Color3(0.24, 0.32, 0.18);
 
-    // Warm Sun Directional Light
+    // 3. Warm Sun Directional Light
     const sun = new DirectionalLight('sunLight', new Vector3(-0.55, -0.85, -0.45).normalize(), this.scene);
     sun.position = new Vector3(110, 140, 200);
     sun.intensity = 1.35;
@@ -342,8 +368,8 @@ class FairwayStudioApp {
     });
 
     // Swing Engine hooks
-    this.swingEngine.onUpdate = (progress, phase) => {
-      this.ui.updateSwingMeter(progress, phase);
+    this.swingEngine.onUpdate = (progress, phase, lockedPower) => {
+      this.ui.updateSwingMeter(progress, phase, lockedPower);
     };
 
     this.swingEngine.onSwingCancelled = (reason) => {
@@ -380,27 +406,31 @@ class FairwayStudioApp {
       if (state === BallState.AT_REST) {
         const holed = this.ball.checkHoleIn(this.courseManager.currentHole.pinPosition);
         if (!holed) {
-          // Switch camera back to address
-          this.cameraCtrl.setMode(lie === SurfaceType.GREEN ? 'green' : 'aim');
-          const pin = this.courseManager.currentHole.pinPosition;
-          const dx = pin.x - this.ball.position.x;
-          const dz = pin.z - this.ball.position.z;
-          this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
-          this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+          // Hold TV broadcast follow angle for 1.8s so player can admire their shot without abrupt zooming
+          setTimeout(() => {
+            if (this.ball.state !== BallState.AT_REST) return;
 
-          if (this.cameraCtrl.mode === 'aim') {
-            this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
-          } else {
-            this.cameraCtrl.focusOnPin(pin);
-          }
+            this.cameraCtrl.setMode(lie === SurfaceType.GREEN ? 'green' : 'aim');
+            const pin = this.courseManager.currentHole.pinPosition;
+            const dx = pin.x - this.ball.position.x;
+            const dz = pin.z - this.ball.position.z;
+            this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+            this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
 
-          // Update recommended club
-          const distToPin = Math.sqrt(dx * dx + dz * dz);
-          this.activeClub = getRecommendedClub(distToPin, lie === SurfaceType.GREEN);
-          this.swingEngine.setClub(this.activeClub);
-          this.swingEngine.setLie(lie);
+            if (this.cameraCtrl.mode === 'aim') {
+              this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+            } else {
+              this.cameraCtrl.focusOnPin(pin);
+            }
 
-          this.updateHUDDisplay();
+            // Update recommended club
+            const distToPin = Math.sqrt(dx * dx + dz * dz);
+            this.activeClub = getRecommendedClub(distToPin, lie === SurfaceType.GREEN);
+            this.swingEngine.setClub(this.activeClub);
+            this.swingEngine.setLie(lie);
+
+            this.updateHUDDisplay();
+          }, 1800);
         }
       } else if (state === BallState.IN_WATER) {
         alert('Splash! Water hazard. 1 penalty stroke. Drop ball near hazard.');
@@ -580,6 +610,9 @@ class FairwayStudioApp {
     if (this.cameraCtrl.mode === 'flight') {
       this.cameraCtrl.updateFlightCamera(this.ball.position, this.ball.curVelocity);
     }
+
+    // Strictly enforce terrain clearance so camera never penetrates underground
+    this.cameraCtrl.enforceTerrainCollision((x, z) => this.terrain.getElevation(x, z));
   }
 }
 

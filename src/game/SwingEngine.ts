@@ -11,10 +11,11 @@ export enum SwingPhase {
 export class SwingEngine {
   public phase: SwingPhase = SwingPhase.IDLE;
   public powerPercent: number = 0;      // 0.0 to 1.05
+  public lockedPowerPercent: number | null = null; // Stored power level for visual marker
   public accuracyOffset: number = 0;    // -1.0 (hook) to +1.0 (slice)
 
   public meterProgress: number = 0;     // 0 to 1
-  private meterSpeed: number = 1.05;    // Accessible, deliberate PGA timing tempo
+  private meterSpeed: number = 0.76;    // Rhythmic, comfortable PGA Tour tempo (~1.3s backswing, ~1.0s downswing)
   private activeClub: ClubSpec;
   private currentLie: SurfaceType = SurfaceType.TEE;
 
@@ -23,7 +24,7 @@ export class SwingEngine {
   public windSpeedMps: number = 3.5;
   public windHeadingDeg: number = 45;
 
-  public onUpdate?: (meterValue: number, phase: SwingPhase) => void;
+  public onUpdate?: (meterValue: number, phase: SwingPhase, lockedPower?: number | null) => void;
   public onShotExecute?: (shot: ShotResult) => void;
   public onSwingCancelled?: (reason: string) => void;
 
@@ -51,15 +52,17 @@ export class SwingEngine {
       this.phase = SwingPhase.BACKSWING;
       this.meterProgress = 0;
       this.powerPercent = 0;
+      this.lockedPowerPercent = null;
       this.accuracyOffset = 0;
-      this.onUpdate?.(0, this.phase);
+      this.onUpdate?.(0, this.phase, null);
       return this.phase;
 
     } else if (this.phase === SwingPhase.BACKSWING) {
       // 2nd Click: Confirms power level and transitions to downswing
       this.phase = SwingPhase.DOWNSWING;
       this.powerPercent = Math.max(0.15, Math.min(1.05, this.meterProgress));
-      this.onUpdate?.(this.meterProgress, this.phase);
+      this.lockedPowerPercent = this.powerPercent;
+      this.onUpdate?.(this.meterProgress, this.phase, this.lockedPowerPercent);
       return this.phase;
 
     } else if (this.phase === SwingPhase.DOWNSWING) {
@@ -82,8 +85,9 @@ export class SwingEngine {
     this.phase = SwingPhase.IDLE;
     this.meterProgress = 0;
     this.powerPercent = 0;
+    this.lockedPowerPercent = null;
     this.accuracyOffset = 0;
-    this.onUpdate?.(0, this.phase);
+    this.onUpdate?.(0, this.phase, null);
   }
 
   public update(dt: number) {
@@ -96,18 +100,18 @@ export class SwingEngine {
         this.onSwingCancelled?.('Power not locked. Click during backswing to set power!');
         return;
       }
-      this.onUpdate?.(this.meterProgress, this.phase);
+      this.onUpdate?.(this.meterProgress, this.phase, this.lockedPowerPercent);
 
     } else if (this.phase === SwingPhase.DOWNSWING) {
-      this.meterProgress -= this.meterSpeed * 1.35 * dt;
+      this.meterProgress -= this.meterSpeed * 0.95 * dt;
 
-      // If needle reaches the bottom without 3rd click, swing cancels / whiffs safely
-      if (this.meterProgress <= -0.05) {
+      // Generous bottom grace window (down to -0.25) allowing human reaction time
+      if (this.meterProgress <= -0.25) {
         this.reset();
         this.onSwingCancelled?.('Impact missed! Click on the white line to strike.');
         return;
       }
-      this.onUpdate?.(this.meterProgress, this.phase);
+      this.onUpdate?.(this.meterProgress, this.phase, this.lockedPowerPercent);
     }
   }
 

@@ -232,12 +232,12 @@ export class SceneryFactory {
     mat.diffuseColor = color;
     mat.specularColor = new Color3(0.1, 0.1, 0.1);
 
-    // Left and right tournament cubic tee blocks 4.4 meters apart
-    [-2.2, 2.2].forEach((offset, i) => {
+    // Left and right tournament cubic tee blocks 3.0 meters apart, scaled to regulation ball
+    [-1.5, 1.5].forEach((offset, i) => {
       const cube = MeshBuilder.CreateBox(`tee_cube_${i}`, {
-        size: 0.28
+        size: 0.14
       }, this.scene);
-      cube.position.set(offset, 0.14, 0);
+      cube.position.set(offset, 0.07, 0);
       cube.rotation.y = (i === 0 ? 0.25 : -0.25);
       cube.material = mat;
       cube.parent = root;

@@ -30,9 +30,9 @@ export class CameraController {
     this.camera.attachControl(canvas, true);
 
     // Generous, unrestricted view angles while strictly keeping camera above ground
-    this.camera.lowerBetaLimit = 0.04;              // Can look straight down from high overhead
-    this.camera.upperBetaLimit = Math.PI / 2.02;     // ~89.1 degrees: full range of motion up to sky, never subterranean
-    this.camera.lowerRadiusLimit = 2.0;             // Close address view
+    this.camera.lowerBetaLimit = 0.05;              // Can look straight down from high overhead
+    this.camera.upperBetaLimit = Math.PI / 2.12;     // ~85 degrees: prevents subterranean ground clipping
+    this.camera.lowerRadiusLimit = 1.6;             // Close address view
     this.camera.upperRadiusLimit = 260;             // Can zoom far out to survey entire fairway
     this.camera.wheelPrecision = 20;
     this.camera.inertia = 0.85;                     // Silky AAA broadcast camera momentum
@@ -46,14 +46,14 @@ export class CameraController {
       this.camera.radius = 90;
       this.camera.beta = Math.PI / 3.4;
     } else if (mode === 'aim') {
-      this.camera.radius = 5.8;
-      this.camera.beta = Math.PI / 2.38; // ~75.6 degrees: frames ball in lower 1/3 and fairway/mountains in full view
+      this.camera.radius = 2.4; // Authentic PGA Tour address view framed for regulation golf ball
+      this.camera.beta = Math.PI / 2.45; // ~73.5 degrees: frames ball and target line down fairway
     } else if (mode === 'green') {
-      this.camera.radius = 8.5;
-      this.camera.beta = Math.PI / 3.2;
+      this.camera.radius = 3.6; // Putting view
+      this.camera.beta = Math.PI / 3.0;
     } else if (mode === 'flight') {
-      this.camera.radius = 14.0;
-      this.camera.beta = Math.PI / 2.8;
+      this.camera.radius = 18.0; // Wide expansive TV broadcast follow distance
+      this.camera.beta = Math.PI / 2.9;
     }
   }
 
@@ -62,20 +62,20 @@ export class CameraController {
    * Only overrides alpha/beta when explicitly called on aim change, preserving player mouse look!
    */
   public snapAimBehindBall(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.95, ballPos.z);
+    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.35, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
     this.camera.alpha = -aimRad - Math.PI / 2;
-    this.camera.beta = Math.PI / 2.38;
-    this.camera.radius = 5.8;
+    this.camera.beta = Math.PI / 2.45;
+    this.camera.radius = 2.4;
   }
 
   /**
    * Soft aim tracking when player presses A/D or arrows
    */
   public setAimHeading(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.95, ballPos.z);
+    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.35, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
@@ -87,7 +87,7 @@ export class CameraController {
   /**
    * AAA Broadcast Flight Follow-Cam (Toptracer TV Angle)
    * Dynamically tracks the ball in flight with smooth interpolation,
-   * framing both the ball and the distant green.
+   * framing both the ball and the distant green without zooming in close.
    */
   public updateFlightCamera(ballPos: Vector3, ballVelocity: Vector3D) {
     if (this.mode !== 'flight') return;
@@ -110,12 +110,43 @@ export class CameraController {
 
       // Distance and angle scale with ball altitude
       const altitude = Math.max(0, ballPos.y);
-      this.camera.radius = 12.0 + Math.min(18.0, altitude * 0.4);
-      this.camera.beta = Math.max(Math.PI / 3.2, Math.PI / 2.7 - altitude * 0.008);
+      this.camera.radius = 16.0 + Math.min(18.0, altitude * 0.35);
+      this.camera.beta = Math.max(Math.PI / 3.2, Math.PI / 2.7 - altitude * 0.006);
     } else {
-      // Ball is settling / rolling on ground: smooth close-up
-      this.camera.radius = Math.max(5.5, this.camera.radius * 0.96);
-      this.camera.beta = Math.PI / 2.7;
+      // Ball is settling / rolling on ground: DO NOT zoom into the ball!
+      // Maintain wide expansive TV broadcast distance so player can see the whole green / fairway
+      this.camera.radius = Math.max(18.0, this.camera.radius);
+      this.camera.beta = Math.PI / 2.9;
+    }
+  }
+
+  /**
+   * Prevents camera from ever penetrating terrain or clipping underground across all angles
+   */
+  public enforceTerrainCollision(getTerrainElevation: (x: number, z: number) => number) {
+    const camPos = this.camera.position;
+    const groundY = getTerrainElevation(camPos.x, camPos.z);
+    const minSafeY = groundY + 0.75; // 0.75m minimum clearance above terrain
+
+    if (camPos.y < minSafeY) {
+      const targetY = this.camera.target.y;
+      const dy = minSafeY - targetY;
+      const cosBetaReq = dy / Math.max(0.2, this.camera.radius);
+      if (cosBetaReq >= -0.99 && cosBetaReq <= 0.99) {
+        const safeBeta = Math.acos(cosBetaReq);
+        if (this.camera.beta > safeBeta) {
+          this.camera.beta = Math.max(0.08, safeBeta - 0.03);
+        }
+      }
+      if (this.camera.position.y < minSafeY) {
+        this.camera.position.y = minSafeY;
+      }
+    }
+
+    // Ensure target never dips underground
+    const targetGroundY = getTerrainElevation(this.camera.target.x, this.camera.target.z);
+    if (this.camera.target.y < targetGroundY + 0.1) {
+      this.camera.target.y = targetGroundY + 0.1;
     }
   }
 

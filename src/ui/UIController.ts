@@ -37,6 +37,8 @@ export class UIController {
   private playHUD!: HTMLDivElement;
   private swingMeterBar!: HTMLDivElement;
   private swingIndicator!: HTMLDivElement;
+  private lockedMarker!: HTMLDivElement;
+  private lockedLabel!: HTMLElement;
   private swingFeedback!: HTMLDivElement;
   private distanceToPinLabel!: HTMLElement;
   private lieBadge!: HTMLElement;
@@ -229,12 +231,25 @@ export class UIController {
             <div class="meter-zone meter-power-over"></div>
             <!-- Sweetspot power zone -->
             <div class="meter-zone meter-power-sweet"></div>
-            <!-- Snap hash line -->
-            <div class="meter-snap-line"></div>
+            <!-- Impact sweet spot zone (11% to 19%) -->
+            <div class="meter-impact-zone"></div>
+            <!-- Snap hash line with top & bottom target pointers -->
+            <div class="meter-snap-line">
+              <span class="snap-marker-top">▼</span>
+              <span class="snap-marker-bottom">▲</span>
+            </div>
             <!-- Dynamic moving meter bar -->
             <div class="swing-meter-bar" id="hud-meter-bar"></div>
-            <!-- Accuracy marker indicator -->
-            <div class="swing-accuracy-needle" id="hud-meter-needle"></div>
+            <!-- Locked power reference line -->
+            <div class="meter-locked-marker" id="hud-meter-locked" style="display: none;">
+              <span class="locked-power-label" id="hud-locked-label">85%</span>
+            </div>
+            <!-- High-contrast accuracy marker needle -->
+            <div class="swing-accuracy-needle" id="hud-meter-needle">
+              <span class="needle-tip-top">▼</span>
+              <span class="needle-core"></span>
+              <span class="needle-tip-bottom">▲</span>
+            </div>
           </div>
           <div class="swing-action-bar">
             <button id="btn-swing-action" class="btn btn-swing">
@@ -256,6 +271,8 @@ export class UIController {
     this.playHUD = document.getElementById('play-hud') as HTMLDivElement;
     this.swingMeterBar = document.getElementById('hud-meter-bar') as HTMLDivElement;
     this.swingIndicator = document.getElementById('hud-meter-needle') as HTMLDivElement;
+    this.lockedMarker = document.getElementById('hud-meter-locked') as HTMLDivElement;
+    this.lockedLabel = document.getElementById('hud-locked-label') as HTMLElement;
     this.swingFeedback = document.getElementById('hud-swing-feedback') as HTMLDivElement;
     this.distanceToPinLabel = document.getElementById('hud-dist-to-pin') as HTMLElement;
     this.lieBadge = document.getElementById('hud-lie-badge') as HTMLElement;
@@ -352,12 +369,14 @@ export class UIController {
     this.windArrow.style.transform = `rotate(${windDeg}deg)`;
   }
 
-  public updateSwingMeter(progress: number, phase: SwingPhase) {
+  public updateSwingMeter(progress: number, phase: SwingPhase, lockedPower?: number | null) {
     const swingBtnText = document.querySelector('.swing-main-btn-text') as HTMLElement;
 
     if (phase === SwingPhase.IDLE) {
       this.swingMeterBar.style.width = '0%';
+      this.lockedMarker.style.display = 'none';
       this.swingIndicator.style.left = '15%';
+      this.swingIndicator.classList.remove('downswing-active');
       this.swingFeedback.innerText = 'PRESS SPACE / CLICK TO SWING';
       this.swingFeedback.className = 'swing-feedback';
       if (swingBtnText) swingBtnText.innerText = 'SWING [SPACE]';
@@ -365,16 +384,28 @@ export class UIController {
       const pct = Math.max(0, Math.min(100, progress * 100));
       this.swingMeterBar.style.width = `${pct}%`;
       this.swingIndicator.style.left = `${pct}%`;
-      this.swingFeedback.innerText = `POWER: ${Math.round(pct)}% (CLICK TO LOCK)`;
+      this.lockedMarker.style.display = 'none';
+      this.swingIndicator.classList.remove('downswing-active');
+      this.swingFeedback.innerText = `BACKSWING: ${Math.round(pct)}% (CLICK TO LOCK POWER)`;
       this.swingFeedback.className = 'swing-feedback feedback-active';
       if (swingBtnText) swingBtnText.innerText = 'LOCK POWER!';
     } else if (phase === SwingPhase.DOWNSWING) {
-      // Progress goes from 1.0 down towards 0.0, needle travels across width
+      // Progress goes down towards 0.0, needle travels across width
       const needlePct = Math.max(0, Math.min(100, progress * 100));
       this.swingIndicator.style.left = `${needlePct}%`;
-      this.swingFeedback.innerText = 'CLICK ON THE WHITE LINE!';
+      this.swingIndicator.classList.add('downswing-active');
+
+      if (lockedPower != null) {
+        const lockPct = Math.max(15, Math.min(100, lockedPower * 100));
+        this.lockedMarker.style.display = 'flex';
+        this.lockedMarker.style.left = `${lockPct}%`;
+        this.lockedLabel.innerText = `${Math.round(lockPct)}%`;
+        this.swingMeterBar.style.width = `${lockPct}%`;
+      }
+
+      this.swingFeedback.innerText = 'DOWNSWING: CLICK ON WHITE IMPACT LINE!';
       this.swingFeedback.className = 'swing-feedback feedback-snap';
-      if (swingBtnText) swingBtnText.innerText = 'SNAP HIT!';
+      if (swingBtnText) swingBtnText.innerText = 'SNAP STRIKE!';
     } else if (phase === SwingPhase.COMPLETE) {
       this.swingFeedback.innerText = 'STRIKE!';
       if (swingBtnText) swingBtnText.innerText = 'SHOT DISPATCHED!';
