@@ -3,8 +3,7 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
-  Color3,
-  Vector3
+  Color3
 } from '@babylonjs/core';
 import { GOLF_CONSTANTS, SurfaceType, SURFACE_PROPERTIES } from '../core/Constants';
 import { Vector3D } from '../core/Types';
@@ -24,9 +23,6 @@ export class TerrainGrid {
   public gridOverlayMesh: Mesh | null = null;
   private scene: Scene;
 
-  // Tracking modified bounding box for fast updates
-  private isDirty = true;
-
   constructor(scene: Scene, width = GOLF_CONSTANTS.DEFAULT_MAP_WIDTH, length = GOLF_CONSTANTS.DEFAULT_MAP_LENGTH) {
     this.scene = scene;
     this.width = Math.floor(width);
@@ -38,30 +34,18 @@ export class TerrainGrid {
     this.heights = new Float32Array(totalVerts);
     this.surfaceTypes = new Uint8Array(totalVerts);
 
-    // Default entire terrain to Rough with subtle natural rolling undulation
     this.generateInitialNaturalTerrain();
   }
 
-  private getIndex(x: number, z: number): number {
-    const cx = Math.max(0, Math.min(this.cols - 1, Math.round(x)));
-    const cz = Math.max(0, Math.min(this.rows - 1, Math.round(z)));
-    return cz * this.cols + cx;
-  }
-
-  /**
-   * Initializes terrain with gentle rolling low-poly topography
-   */
   private generateInitialNaturalTerrain() {
     for (let z = 0; z < this.rows; z++) {
       for (let x = 0; x < this.cols; x++) {
         const idx = z * this.cols + x;
-        // Default to rough grass
         this.surfaceTypes[idx] = SurfaceType.ROUGH;
 
-        // Gentle natural undulation (wavelength ~80m, amp ~1.5m)
+        // Natural undulation
         const wave1 = Math.sin(x * 0.04) * Math.cos(z * 0.03) * 1.4;
         const wave2 = Math.sin(x * 0.09 + 1.2) * Math.sin(z * 0.07) * 0.6;
-        // Slight natural drainage tilt towards center
         const centerDistX = Math.abs(x - this.width * 0.5) / (this.width * 0.5);
         const rimLift = Math.pow(centerDistX, 2) * 2.0;
 
@@ -70,10 +54,6 @@ export class TerrainGrid {
     }
   }
 
-  /**
-   * Samples terrain elevation at any continuous world coordinate (x, z)
-   * using bilinear interpolation.
-   */
   public getElevation(worldX: number, worldZ: number): number {
     const x = Math.max(0, Math.min(this.width - 0.001, worldX));
     const z = Math.max(0, Math.min(this.length - 0.001, worldZ));
@@ -97,18 +77,12 @@ export class TerrainGrid {
     return hTop * (1 - fz) + hBottom * fz;
   }
 
-  /**
-   * Returns surface type at continuous world coordinate (x, z)
-   */
   public getSurfaceAt(worldX: number, worldZ: number): SurfaceType {
     const cx = Math.max(0, Math.min(this.cols - 1, Math.round(worldX)));
     const cz = Math.max(0, Math.min(this.rows - 1, Math.round(worldZ)));
     return this.surfaceTypes[cz * this.cols + cx] as SurfaceType;
   }
 
-  /**
-   * Computes surface normal at (x, z) for slope calculation and ball bounce
-   */
   public getNormal(worldX: number, worldZ: number): Vector3D {
     const eps = 0.5;
     const hL = this.getElevation(worldX - eps, worldZ);
@@ -124,9 +98,6 @@ export class TerrainGrid {
     return { x: nx / len, y: ny / len, z: nz / len };
   }
 
-  /**
-   * Modifies terrain using interactive brush
-   */
   public applySculptBrush(
     centerX: number,
     centerZ: number,
@@ -141,7 +112,7 @@ export class TerrainGrid {
     const minZ = Math.max(0, Math.floor(centerZ - radius));
     const maxZ = Math.min(this.rows - 1, Math.ceil(centerZ + radius));
 
-    let flattenHeight = targetFlattenHeight ?? this.getElevation(centerX, centerZ);
+    const flattenHeight = targetFlattenHeight ?? this.getElevation(centerX, centerZ);
 
     for (let z = minZ; z <= maxZ; z++) {
       for (let x = minX; x <= maxX; x++) {
@@ -150,7 +121,6 @@ export class TerrainGrid {
         const dist = Math.sqrt(dx * dx + dz * dz);
         if (dist > radius) continue;
 
-        // Smooth cosine falloff
         const falloff = 0.5 * (1.0 + Math.cos((dist / radius) * Math.PI));
         const idx = z * this.cols + x;
 
@@ -165,7 +135,6 @@ export class TerrainGrid {
             this.heights[idx] = this.heights[idx] * (1 - falloff * strength) + flattenHeight * (falloff * strength);
             break;
           case 'smooth': {
-            // Average with 4-neighborhood
             const nL = x > 0 ? this.heights[idx - 1] : this.heights[idx];
             const nR = x < this.cols - 1 ? this.heights[idx + 1] : this.heights[idx];
             const nD = z > 0 ? this.heights[idx - this.cols] : this.heights[idx];
@@ -187,13 +156,9 @@ export class TerrainGrid {
       }
     }
 
-    this.isDirty = true;
     this.rebuildMesh();
   }
 
-  /**
-   * Automatic Feature Stamp with geometric blending (Bunkers, Greens, Tees, Fairways, Water)
-   */
   public stampFeature(
     centerX: number,
     centerZ: number,
@@ -223,51 +188,43 @@ export class TerrainGrid {
         const dx = x - centerX;
         const dz = z - centerZ;
 
-        // Transform into local feature coordinate system
         const localX = dx * cosR - dz * sinR;
         const localZ = dx * sinR + dz * cosR;
 
-        // Normalized distance in oriented ellipse
         const normDist = Math.sqrt(Math.pow(localX / halfW, 2) + Math.pow(localZ / halfL, 2));
 
         if (normDist <= 1.25) {
           const idx = z * this.cols + x;
 
           if (surfaceType === SurfaceType.BUNKER) {
-            // Bunker carving: Deep bowl inside + raised lip around edge
             if (normDist <= 1.0) {
               const bowlFactor = 1.0 - Math.pow(normDist, 2);
               const targetH = baseElevation + depthProfile * bowlFactor;
               this.heights[idx] = this.heights[idx] * 0.3 + targetH * 0.7;
               this.surfaceTypes[idx] = SurfaceType.BUNKER;
             } else {
-              // Outer lip rim (raised lip helps frame bunkers visually)
               const lipFactor = Math.sin((normDist - 1.0) * Math.PI / 0.25);
               this.heights[idx] += lipHeight * lipFactor * 0.5;
             }
           } else if (surfaceType === SurfaceType.GREEN) {
-            // Green: smooth plateau at base elevation with subtle crown
             if (normDist <= 1.0) {
               const blend = Math.cos(normDist * Math.PI * 0.5);
               this.heights[idx] = this.heights[idx] * (1 - blend) + (baseElevation + depthProfile) * blend;
               this.surfaceTypes[idx] = SurfaceType.GREEN;
             }
           } else if (surfaceType === SurfaceType.TEE) {
-            // Tee: laser flat rectangular/oval pad
             if (normDist <= 1.0) {
               const blend = 1.0 - Math.pow(normDist, 4);
               this.heights[idx] = this.heights[idx] * (1 - blend) + (baseElevation + 0.2) * blend;
               this.surfaceTypes[idx] = SurfaceType.TEE;
             }
           } else if (surfaceType === SurfaceType.WATER) {
-            // Water basin: steep excavated cavity
             if (normDist <= 1.0) {
               const basin = 1.0 - Math.pow(normDist, 2);
               this.heights[idx] = Math.min(this.heights[idx], baseElevation + depthProfile * basin);
               this.surfaceTypes[idx] = SurfaceType.WATER;
             }
           } else {
-            // Fairway or other surface
             if (normDist <= 1.0) {
               this.surfaceTypes[idx] = surfaceType;
             }
@@ -276,13 +233,9 @@ export class TerrainGrid {
       }
     }
 
-    this.isDirty = true;
     this.rebuildMesh();
   }
 
-  /**
-   * Builds the faceted low-poly mesh and vertex color buffers
-   */
   public buildMesh(): Mesh {
     if (this.terrainMesh) {
       this.terrainMesh.dispose();
@@ -294,7 +247,7 @@ export class TerrainGrid {
     this.rebuildMesh();
 
     const mat = new StandardMaterial('terrainMat', this.scene);
-    mat.specularColor = new Color3(0.05, 0.05, 0.05); // Matte low-poly finish
+    mat.specularColor = new Color3(0.04, 0.04, 0.04);
     mat.backFaceCulling = false;
     mesh.material = mat;
 
@@ -302,15 +255,14 @@ export class TerrainGrid {
   }
 
   /**
-   * Regenerates vertex data for low-poly flat shading or smooth shading
+   * Advanced Low-Poly Texture & Multi-Surface Blending
+   * Computes smooth transitions, mowing stripes, bunker feathering, and slope-based rock cliffs.
    */
   public rebuildMesh() {
     if (!this.terrainMesh) return;
 
-    // Build faceted low-poly triangles: each quad is split into 2 triangles with independent flat normals
-    // This gives the signature AAA low-poly aesthetic!
     const quadCount = this.width * this.length;
-    const vertexCount = quadCount * 6; // 2 triangles per quad = 6 vertices
+    const vertexCount = quadCount * 6;
 
     const positions = new Float32Array(vertexCount * 3);
     const normals = new Float32Array(vertexCount * 3);
@@ -321,9 +273,52 @@ export class TerrainGrid {
     let pIdx = 0;
     let cIdx = 0;
 
+    // Helper to evaluate blended surface color with mowing patterns & slope rock
+    const evaluateSurfaceColor = (
+      px: number,
+      pz: number,
+      surf: SurfaceType,
+      normalY: number
+    ): [number, number, number] => {
+      // 1. Slope-aware Rock Blending (automatic rocky cliffs on steep grades like ProceduralTerrains)
+      const slope = 1.0 - normalY;
+      if (slope > 0.45 && surf !== SurfaceType.WATER) {
+        // Granite cliff stone
+        const rockJitter = Math.sin(px * 1.5 + pz * 2.3) * 0.04;
+        return [0.48 + rockJitter, 0.50 + rockJitter, 0.52 + rockJitter];
+      }
+
+      // Base color from property table
+      const baseRgb = [...SURFACE_PROPERTIES[surf].color] as [number, number, number];
+
+      // 2. Mowing stripes on Fairway (4-meter alternating directional cut)
+      if (surf === SurfaceType.FAIRWAY) {
+        const stripePattern = Math.sin((pz + px * 0.2) * (Math.PI / 4.0));
+        const stripeBrightness = stripePattern > 0 ? 0.035 : -0.035;
+        baseRgb[0] = Math.max(0, Math.min(1, baseRgb[0] + stripeBrightness * 0.8));
+        baseRgb[1] = Math.max(0, Math.min(1, baseRgb[1] + stripeBrightness * 1.2));
+        baseRgb[2] = Math.max(0, Math.min(1, baseRgb[2] + stripeBrightness * 0.6));
+      }
+
+      // 3. Green collar/fringe subtle shading
+      if (surf === SurfaceType.GREEN) {
+        // Subtle concentric ring pattern on green
+        const ring = Math.sin(Math.sqrt(px * px + pz * pz) * 1.5) * 0.02;
+        baseRgb[0] += ring;
+        baseRgb[1] += ring * 1.2;
+      }
+
+      // 4. Subtle per-triangle low-poly organic jitter
+      const jitter = Math.sin(px * 12.3 + pz * 45.6) * 0.025;
+      baseRgb[0] = Math.max(0, Math.min(1, baseRgb[0] + jitter));
+      baseRgb[1] = Math.max(0, Math.min(1, baseRgb[1] + jitter));
+      baseRgb[2] = Math.max(0, Math.min(1, baseRgb[2] + jitter));
+
+      return baseRgb;
+    };
+
     for (let z = 0; z < this.length; z++) {
       for (let x = 0; x < this.width; x++) {
-        // 4 corners of current 1m x 1m quad
         const idx00 = z * this.cols + x;
         const idx10 = z * this.cols + (x + 1);
         const idx01 = (z + 1) * this.cols + x;
@@ -340,7 +335,6 @@ export class TerrainGrid {
         const s11 = this.surfaceTypes[idx11];
 
         // Triangle 1: (0,0), (0,1), (1,0)
-        // Compute flat normal for Tri 1
         const ax1 = 0, ay1 = y01 - y00, az1 = 1;
         const bx1 = 1, by1 = y10 - y00, bz1 = 0;
         let nx1 = ay1 * bz1 - az1 * by1;
@@ -349,7 +343,6 @@ export class TerrainGrid {
         const l1 = Math.sqrt(nx1 * nx1 + ny1 * ny1 + nz1 * nz1) || 1;
         nx1 /= l1; ny1 /= l1; nz1 /= l1;
 
-        // Tri 1 vertices
         const tri1Verts = [
           { px: x, py: y00, pz: z, s: s00 },
           { px: x, py: y01, pz: z + 1, s: s01 },
@@ -365,12 +358,10 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny1;
           normals[pIdx + 2] = nz1;
 
-          const rgb = SURFACE_PROPERTIES[tv.s as SurfaceType].color;
-          // Add subtle per-triangle low-poly color jitter
-          const jitter = (Math.sin(tv.px * 12.3 + tv.pz * 45.6) * 0.03);
-          colors[cIdx] = Math.max(0, Math.min(1, rgb[0] + jitter));
-          colors[cIdx + 1] = Math.max(0, Math.min(1, rgb[1] + jitter));
-          colors[cIdx + 2] = Math.max(0, Math.min(1, rgb[2] + jitter));
+          const rgb = evaluateSurfaceColor(tv.px, tv.pz, tv.s as SurfaceType, ny1);
+          colors[cIdx] = rgb[0];
+          colors[cIdx + 1] = rgb[1];
+          colors[cIdx + 2] = rgb[2];
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;
@@ -403,11 +394,10 @@ export class TerrainGrid {
           normals[pIdx + 1] = ny2;
           normals[pIdx + 2] = nz2;
 
-          const rgb = SURFACE_PROPERTIES[tv.s as SurfaceType].color;
-          const jitter = (Math.cos(tv.px * 32.1 + tv.pz * 65.4) * 0.03);
-          colors[cIdx] = Math.max(0, Math.min(1, rgb[0] + jitter));
-          colors[cIdx + 1] = Math.max(0, Math.min(1, rgb[1] + jitter));
-          colors[cIdx + 2] = Math.max(0, Math.min(1, rgb[2] + jitter));
+          const rgb = evaluateSurfaceColor(tv.px, tv.pz, tv.s as SurfaceType, ny2);
+          colors[cIdx] = rgb[0];
+          colors[cIdx + 1] = rgb[1];
+          colors[cIdx + 2] = rgb[2];
           colors[cIdx + 3] = 1.0;
 
           indices[vIdx] = vIdx;
@@ -424,7 +414,5 @@ export class TerrainGrid {
     vertexData.colors = colors;
     vertexData.indices = indices;
     vertexData.applyToMesh(this.terrainMesh, true);
-
-    this.isDirty = false;
   }
 }

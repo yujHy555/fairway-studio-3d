@@ -16,6 +16,7 @@ import { GOLF_CONSTANTS, SurfaceType } from './core/Constants';
 import { PresetFeature, ClubSpec } from './core/Types';
 import { HavokManager } from './physics/HavokManager';
 import { TerrainGrid } from './terrain/TerrainGrid';
+import { ProceduralBackdrop } from './terrain/ProceduralBackdrop';
 import { SceneryFactory } from './terrain/Scenery';
 import { GreenContourVisualizer } from './terrain/GreenContourVisualizer';
 import { Ball, BallState } from './game/Ball';
@@ -32,6 +33,7 @@ class FairwayStudioApp {
 
   private havok: HavokManager;
   private terrain!: TerrainGrid;
+  private backdrop!: ProceduralBackdrop;
   private scenery!: SceneryFactory;
   private courseManager!: CourseManager;
   private greenVisualizer!: GreenContourVisualizer;
@@ -74,10 +76,11 @@ class FairwayStudioApp {
     // 2. Initialize Havok Physics
     await this.havok.initialize();
 
-    // 3. Initialize Terrain
+    // 3. Initialize Terrain & Procedural Backdrop
     this.terrain = new TerrainGrid(this.scene);
     this.terrain.buildMesh();
     this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
+    this.backdrop = new ProceduralBackdrop(this.scene);
 
     // 4. Initialize Scenery & Course
     this.scenery = new SceneryFactory(this.scene);
