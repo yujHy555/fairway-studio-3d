@@ -197,7 +197,7 @@ export class Ball {
 
       // Realistic rolling friction with clean settling
       const speed = Math.sqrt(this.curVelocity.x * this.curVelocity.x + this.curVelocity.z * this.curVelocity.z);
-      const frictionDecay = Math.max(0, 1.0 - (props.rollingResistance * 5.0 + 0.35) * dt);
+      const frictionDecay = Math.max(0, 1.0 - (props.rollingResistance * 6.5 + 0.55) * dt);
 
       this.curVelocity.x = (this.curVelocity.x + slopeForceX * dt) * frictionDecay;
       this.curVelocity.z = (this.curVelocity.z + slopeForceZ * dt) * frictionDecay;
@@ -215,17 +215,19 @@ export class Ball {
       // Check water hazard
       if (surface === SurfaceType.WATER) {
         this.state = BallState.IN_WATER;
+        this.clearTracer();
         soundFx.playWaterSplash();
         this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
         return;
       }
 
-      // Decisive ball settling: stop creeping when speed drops below 0.35 m/s
-      if (speed < 0.35) {
+      // Decisive ball settling: stop creeping when speed drops below 0.45 m/s
+      if (speed < 0.45) {
         this.atRestCounter += dt;
-        if (this.atRestCounter > 0.15) {
+        if (this.atRestCounter > 0.12) {
           this.state = BallState.AT_REST;
           this.curVelocity = { x: 0, y: 0, z: 0 };
+          this.clearTracer();
           this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
         }
       } else {
@@ -255,6 +257,7 @@ export class Ball {
 
     if (surface === SurfaceType.WATER) {
       this.state = BallState.IN_WATER;
+      this.clearTracer();
       soundFx.playWaterSplash();
       this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
       return;
@@ -294,6 +297,7 @@ export class Ball {
         this.state = BallState.IN_HOLE;
         this.curVelocity = { x: 0, y: 0, z: 0 };
         this.mesh.position.set(pinPos.x, pinPos.y - GOLF_CONSTANTS.CUP_DEPTH * 0.8, pinPos.z);
+        this.clearTracer();
         soundFx.playCupDrop();
         this.onHoleComplete?.();
         this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });

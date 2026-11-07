@@ -30,12 +30,13 @@ export class CameraController {
     this.camera.attachControl(canvas, true);
 
     // Generous, unrestricted view angles while strictly keeping camera above ground
-    this.camera.lowerBetaLimit = 0.08;              // Can look straight down from high overhead
-    this.camera.upperBetaLimit = Math.PI / 2.04;     // ~88 degrees: can look all the way up to mountains/sky, never subterranean
-    this.camera.lowerRadiusLimit = 2.5;             // Close address view
-    this.camera.upperRadiusLimit = 250;             // Can zoom far out to survey entire fairway
+    this.camera.lowerBetaLimit = 0.04;              // Can look straight down from high overhead
+    this.camera.upperBetaLimit = Math.PI / 2.02;     // ~89.1 degrees: full range of motion up to sky, never subterranean
+    this.camera.lowerRadiusLimit = 2.0;             // Close address view
+    this.camera.upperRadiusLimit = 260;             // Can zoom far out to survey entire fairway
     this.camera.wheelPrecision = 20;
     this.camera.inertia = 0.85;                     // Silky AAA broadcast camera momentum
+    this.camera.panningSensibility = 150;           // Smooth right-click pan support
   }
 
   public setMode(mode: CameraMode) {
@@ -45,11 +46,11 @@ export class CameraController {
       this.camera.radius = 90;
       this.camera.beta = Math.PI / 3.4;
     } else if (mode === 'aim') {
-      this.camera.radius = 6.0;
-      this.camera.beta = Math.PI / 2.6; // ~69 degrees: can see ball, club, fairway, and horizon
+      this.camera.radius = 5.8;
+      this.camera.beta = Math.PI / 2.38; // ~75.6 degrees: frames ball in lower 1/3 and fairway/mountains in full view
     } else if (mode === 'green') {
-      this.camera.radius = 9.0;
-      this.camera.beta = Math.PI / 3.5;
+      this.camera.radius = 8.5;
+      this.camera.beta = Math.PI / 3.2;
     } else if (mode === 'flight') {
       this.camera.radius = 14.0;
       this.camera.beta = Math.PI / 2.8;
@@ -61,20 +62,20 @@ export class CameraController {
    * Only overrides alpha/beta when explicitly called on aim change, preserving player mouse look!
    */
   public snapAimBehindBall(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y), ballPos.z);
+    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.95, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
     this.camera.alpha = -aimRad - Math.PI / 2;
-    this.camera.beta = Math.PI / 2.6;
-    this.camera.radius = 6.0;
+    this.camera.beta = Math.PI / 2.38;
+    this.camera.radius = 5.8;
   }
 
   /**
    * Soft aim tracking when player presses A/D or arrows
    */
   public setAimHeading(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y), ballPos.z);
+    this.targetPosition.set(ballPos.x, Math.max(0.4, ballPos.y) + 0.95, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;

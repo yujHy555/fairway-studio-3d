@@ -549,17 +549,17 @@ html, body {
 /* Club Selector */
 .hud-club-selector {
   position: absolute;
-  bottom: 175px;
+  bottom: 112px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(18, 24, 22, 0.92);
   backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 30px;
-  padding: 6px 14px;
+  padding: 5px 14px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
@@ -567,11 +567,11 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 160px;
+  min-width: 150px;
 }
 
 .club-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
   color: #34d399;
 }
@@ -584,13 +584,13 @@ html, body {
 /* Swing Meter Container */
 .hud-swing-container {
   position: absolute;
-  bottom: 24px;
+  bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .swing-feedback {

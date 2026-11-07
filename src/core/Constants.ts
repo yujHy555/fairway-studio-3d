@@ -93,10 +93,10 @@ export const GOLF_CONSTANTS = {
   BALL_MASS: 0.04593,             // 45.93 grams
   BALL_PHYSICS_RADIUS: 0.021335,  // 42.67 mm USGA diameter
   BALL_CROSS_SECTION: Math.PI * Math.pow(0.021335, 2), // ~0.00143 m^2
-  BALL_RENDER_RADIUS: 0.075,      // Visual radius (15cm diameter for prominent AAA game visibility)
-  BALL_RADIUS: 0.075,
-  CUP_RADIUS: 0.09,               // Scaled cup opening for high visual clarity
-  CUP_DEPTH: 0.12,
+  BALL_RENDER_RADIUS: 0.12,       // Visual radius (24cm diameter for crisp AAA visibility across 350m holes)
+  BALL_RADIUS: 0.12,
+  CUP_RADIUS: 0.15,               // Scaled cup opening for high visual clarity
+  CUP_DEPTH: 0.16,
   
   // Aerodynamics & Environment
   AIR_DENSITY: 1.204,             // kg/m^3 at 20 deg C

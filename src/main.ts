@@ -42,7 +42,7 @@ class FairwayStudioApp {
   private swingEngine!: SwingEngine;
   private cameraCtrl!: CameraController;
   private ui!: UIController;
-  private shadowGenerator!: ShadowGenerator;
+  private shadowGenerator: ShadowGenerator | null = null;
 
   // Designer State
   private activeMode: 'designer' | 'play' = 'play';
@@ -103,17 +103,23 @@ class FairwayStudioApp {
     this.ball = new Ball(this.scene, this.terrain);
     this.swingEngine = new SwingEngine(this.activeClub);
 
+    // 8. Setup UI & Event Handlers (must be initialized before placeBallAtActiveTee)
+    this.setupUI();
+
     // Ball casts shadows
-    this.shadowGenerator.addShadowCaster(this.ball.mesh, true);
+    if (this.shadowGenerator && this.ball?.mesh && this.ball.mesh.getTotalVertices() > 0) {
+      try {
+        this.shadowGenerator.addShadowCaster(this.ball.mesh, false);
+      } catch (e) {
+        console.warn('Failed to add ball shadow caster:', e);
+      }
+    }
 
     // Register all course scenery to cast soft shadows
     this.registerSceneryShadows();
 
     // Place ball at Hole 1 Tee
     this.placeBallAtActiveTee();
-
-    // 8. Setup UI & Event Handlers
-    this.setupUI();
 
     // 9. Input & Pointer Interactions
     this.setupPointerInteractions();
@@ -144,17 +150,34 @@ class FairwayStudioApp {
     sun.diffuse = new Color3(1.0, 0.96, 0.88); // Golden hour sun
 
     // High quality soft PCF shadows (optimized)
-    this.shadowGenerator = new ShadowGenerator(2048, sun);
-    this.shadowGenerator.usePercentageCloserFiltering = true;
-    this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
-    this.shadowGenerator.bias = 0.0015;
-    this.shadowGenerator.normalBias = 0.025;
+    try {
+      this.shadowGenerator = new ShadowGenerator(2048, sun);
+      this.shadowGenerator.usePercentageCloserFiltering = true;
+      this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+      this.shadowGenerator.bias = 0.0015;
+      this.shadowGenerator.normalBias = 0.025;
+    } catch (e) {
+      console.warn('ShadowGenerator initialization fallback:', e);
+    }
   }
 
   private registerSceneryShadows() {
-    const meshes = this.courseManager.getSceneryMeshes();
+    if (!this.shadowGenerator) return;
+    const meshes = this.scene.meshes;
     for (const m of meshes) {
-      this.shadowGenerator.addShadowCaster(m, true);
+      if (
+        m.name !== 'GolfTerrain' &&
+        m.name !== 'ProceduralBackdropMesh' &&
+        !m.name.startsWith('water_') &&
+        m.name !== 'gridOverlay' &&
+        m.getTotalVertices() > 0
+      ) {
+        try {
+          this.shadowGenerator.addShadowCaster(m, false);
+        } catch {
+          // ignore mesh if unsupported
+        }
+      }
     }
   }
 
@@ -434,6 +457,7 @@ class FairwayStudioApp {
   }
 
   private updateHUDDisplay() {
+    if (!this.ui) return;
     const pin = this.courseManager.currentHole.pinPosition;
     const dx = pin.x - this.ball.position.x;
     const dz = pin.z - this.ball.position.z;
@@ -562,5 +586,6 @@ class FairwayStudioApp {
 // Bootstrap application on page load
 window.addEventListener('DOMContentLoaded', async () => {
   const app = new FairwayStudioApp();
+  (window as any).app = app;
   await app.start();
 });
