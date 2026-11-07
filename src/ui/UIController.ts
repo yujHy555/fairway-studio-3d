@@ -346,23 +346,31 @@ export class UIController {
   }
 
   public updateSwingMeter(progress: number, phase: SwingPhase) {
+    const swingBtnText = document.querySelector('.swing-main-btn-text') as HTMLElement;
+
     if (phase === SwingPhase.IDLE) {
-      this.swingMeterBar.style.height = '0%';
-      this.swingIndicator.style.bottom = '0%';
+      this.swingMeterBar.style.width = '0%';
+      this.swingIndicator.style.left = '15%';
       this.swingFeedback.innerText = 'PRESS SPACE / CLICK TO SWING';
       this.swingFeedback.className = 'swing-feedback';
+      if (swingBtnText) swingBtnText.innerText = 'SWING [SPACE]';
     } else if (phase === SwingPhase.BACKSWING) {
-      const pct = Math.max(0, Math.min(100, (progress / 1.0) * 100));
-      this.swingMeterBar.style.height = `${pct}%`;
-      this.swingFeedback.innerText = 'CLICK FOR POWER!';
+      const pct = Math.max(0, Math.min(100, progress * 100));
+      this.swingMeterBar.style.width = `${pct}%`;
+      this.swingIndicator.style.left = `${pct}%`;
+      this.swingFeedback.innerText = `POWER: ${Math.round(pct)}% (CLICK TO LOCK)`;
       this.swingFeedback.className = 'swing-feedback feedback-active';
+      if (swingBtnText) swingBtnText.innerText = 'LOCK POWER!';
     } else if (phase === SwingPhase.DOWNSWING) {
-      const snapPct = Math.max(0, Math.min(100, (progress + 0.15) * 80));
-      this.swingIndicator.style.bottom = `${snapPct}%`;
-      this.swingFeedback.innerText = 'CLICK ON SNAP LINE!';
+      // Progress goes from 1.0 down towards 0.0, needle travels across width
+      const needlePct = Math.max(0, Math.min(100, progress * 100));
+      this.swingIndicator.style.left = `${needlePct}%`;
+      this.swingFeedback.innerText = 'CLICK ON THE WHITE LINE!';
       this.swingFeedback.className = 'swing-feedback feedback-snap';
+      if (swingBtnText) swingBtnText.innerText = 'SNAP HIT!';
     } else if (phase === SwingPhase.COMPLETE) {
       this.swingFeedback.innerText = 'STRIKE!';
+      if (swingBtnText) swingBtnText.innerText = 'SHOT DISPATCHED!';
     }
   }
 

@@ -93,7 +93,7 @@ class FairwayStudioApp {
     this.cameraCtrl = new CameraController(this.scene, this.canvas);
 
     // 7. Ball & Swing Engine
-    this.ball = new Ball(this.scene, this.terrain, this.havok);
+    this.ball = new Ball(this.scene, this.terrain);
     this.swingEngine = new SwingEngine(this.activeClub);
 
     // Place ball at Hole 1 Tee
@@ -529,11 +529,7 @@ class FairwayStudioApp {
 
     // Update flight camera if ball is moving
     if (this.cameraCtrl.mode === 'flight') {
-      this.cameraCtrl.updateFlightCamera(this.ball.position, {
-        x: (this.ball as any).curVelocity.x,
-        y: (this.ball as any).curVelocity.y,
-        z: (this.ball as any).curVelocity.z
-      });
+      this.cameraCtrl.updateFlightCamera(this.ball.position, this.ball.curVelocity);
     }
   }
 }
