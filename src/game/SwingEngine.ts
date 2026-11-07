@@ -3,28 +3,29 @@ import { SURFACE_PROPERTIES, SurfaceType } from '../core/Constants';
 
 export enum SwingPhase {
   IDLE = 'IDLE',
-  BACKSWING = 'BACKSWING',   // Gauge rising to set power
-  DOWNSWING = 'DOWNSWING',   // Gauge falling to snap accuracy
+  BACKSWING = 'BACKSWING',   // Meter rising to set power
+  DOWNSWING = 'DOWNSWING',   // Needle falling to snap accuracy
   COMPLETE = 'COMPLETE'
 }
 
 export class SwingEngine {
   public phase: SwingPhase = SwingPhase.IDLE;
-  public powerPercent: number = 0;      // 0.0 to 1.15
+  public powerPercent: number = 0;      // 0.0 to 1.05
   public accuracyOffset: number = 0;    // -1.0 (hook) to +1.0 (slice)
 
   public meterProgress: number = 0;     // 0 to 1
-  private meterSpeed: number = 1.25;    // Smooth readable speed
+  private meterSpeed: number = 1.05;    // Accessible, deliberate PGA timing tempo
   private activeClub: ClubSpec;
   private currentLie: SurfaceType = SurfaceType.TEE;
 
   // Aiming parameters
-  public aimAzimuthDeg: number = 0;     // Heading in degrees
-  public windSpeedMps: number = 3.5;    // Wind speed
-  public windHeadingDeg: number = 45;   // Wind direction
+  public aimAzimuthDeg: number = 0;
+  public windSpeedMps: number = 3.5;
+  public windHeadingDeg: number = 45;
 
   public onUpdate?: (meterValue: number, phase: SwingPhase) => void;
   public onShotExecute?: (shot: ShotResult) => void;
+  public onSwingCancelled?: (reason: string) => void;
 
   constructor(initialClub: ClubSpec) {
     this.activeClub = initialClub;
@@ -39,11 +40,14 @@ export class SwingEngine {
   }
 
   /**
-   * Action click (Spacebar or Swing Button)
+   * PGA Tour 3-Click Control:
+   * Click 1: Begin backswing
+   * Click 2: Lock Power (MUST click to set power)
+   * Click 3: Strike on Impact Snap Line
    */
   public handleActionClick(): SwingPhase {
     if (this.phase === SwingPhase.IDLE) {
-      // 1st click: Start charging swing power
+      // 1st Click: Start backswing
       this.phase = SwingPhase.BACKSWING;
       this.meterProgress = 0;
       this.powerPercent = 0;
@@ -52,19 +56,19 @@ export class SwingEngine {
       return this.phase;
 
     } else if (this.phase === SwingPhase.BACKSWING) {
-      // 2nd click: Lock in power and start downswing
+      // 2nd Click: Confirms power level and transitions to downswing
       this.phase = SwingPhase.DOWNSWING;
-      this.powerPercent = Math.max(0.2, Math.min(1.05, this.meterProgress));
+      this.powerPercent = Math.max(0.15, Math.min(1.05, this.meterProgress));
       this.onUpdate?.(this.meterProgress, this.phase);
       return this.phase;
 
     } else if (this.phase === SwingPhase.DOWNSWING) {
-      // 3rd click: Snap accuracy
+      // 3rd Click: Snaps accuracy on impact hash mark
       this.phase = SwingPhase.COMPLETE;
 
-      // Accuracy: Target is the snap line at progress = 0.15
+      // Snap hash line is located at 15% (0.15)
       const snapTarget = 0.15;
-      const snapError = (this.meterProgress - snapTarget) / 0.35; // -1 to +1
+      const snapError = (this.meterProgress - snapTarget) / 0.18; // scaled offset
       this.accuracyOffset = Math.max(-1.0, Math.min(1.0, snapError));
 
       this.executeShot();
@@ -86,49 +90,40 @@ export class SwingEngine {
     if (this.phase === SwingPhase.BACKSWING) {
       this.meterProgress += this.meterSpeed * dt;
 
-      if (this.meterProgress >= 1.0) {
-        // Automatically lock in 100% power and begin downswing if user doesn't click
-        this.meterProgress = 1.0;
-        this.powerPercent = 1.0;
-        this.phase = SwingPhase.DOWNSWING;
+      // If user does NOT click to set power, the swing reaches apex and cancels safely
+      if (this.meterProgress >= 1.05) {
+        this.reset();
+        this.onSwingCancelled?.('Power not locked. Click during backswing to set power!');
+        return;
       }
       this.onUpdate?.(this.meterProgress, this.phase);
 
     } else if (this.phase === SwingPhase.DOWNSWING) {
-      this.meterProgress -= this.meterSpeed * 1.3 * dt;
+      this.meterProgress -= this.meterSpeed * 1.35 * dt;
 
-      // When downswing reaches or passes the snap line without a click, auto-strike with solid contact!
-      if (this.meterProgress <= 0.05) {
-        this.meterProgress = 0.15; // sweetspot
-        this.accuracyOffset = 0.05; // slight baby fade
-        this.phase = SwingPhase.COMPLETE;
-        this.executeShot();
-      } else {
-        this.onUpdate?.(this.meterProgress, this.phase);
+      // If needle reaches the bottom without 3rd click, swing cancels / whiffs safely
+      if (this.meterProgress <= -0.05) {
+        this.reset();
+        this.onSwingCancelled?.('Impact missed! Click on the white line to strike.');
+        return;
       }
+      this.onUpdate?.(this.meterProgress, this.phase);
     }
   }
 
   private executeShot() {
     const lieProps = SURFACE_PROPERTIES[this.currentLie];
-    const power = Math.max(0.3, this.powerPercent) * lieProps.liePenalty;
+    const power = Math.max(0.15, this.powerPercent) * lieProps.liePenalty;
 
-    // Launch speed
     const launchSpeed = this.activeClub.baseBallSpeedMps * power;
 
-    // Launch angle: club loft with subtle dynamic loft based on lie
     let launchAngle = this.activeClub.loftDegrees;
     if (this.activeClub.category === 'putter') {
       launchAngle = 2.0;
     }
 
-    // Backspin: scales with strike power and lie
     const backspin = this.activeClub.baseBackspinRPM * power * lieProps.spinMultiplier;
-
-    // Sidespin: generated by accuracy offset
     const sidespin = this.activeClub.maxSidespinRPM * this.accuracyOffset;
-
-    // Subtle azimuth push/pull
     const azimuthAdjustment = this.accuracyOffset * 3.5;
     const finalAzimuth = this.aimAzimuthDeg + azimuthAdjustment;
 
@@ -149,6 +144,6 @@ export class SwingEngine {
 
     setTimeout(() => {
       this.reset();
-    }, 1500);
+    }, 1200);
   }
 }

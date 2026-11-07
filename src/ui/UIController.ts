@@ -187,6 +187,13 @@ export class UIController {
             <span>Lie:</span>
             <span id="hud-lie-badge" class="badge-lie badge-tee">Tee Box</span>
           </div>
+
+          <!-- Live Shot Distance Tracker -->
+          <div class="shot-tracker-badge" id="hud-shot-tracker" style="display: none;">
+            <span class="shot-tracker-label">LAST SHOT</span>
+            <span class="shot-tracker-total" id="hud-shot-total">0m</span>
+            <span class="shot-tracker-sub" id="hud-shot-breakdown">In flight...</span>
+          </div>
         </div>
 
         <!-- Wind Gauge -->
@@ -377,6 +384,29 @@ export class UIController {
   public setSwingFeedbackText(text: string, type: 'perfect' | 'great' | 'draw' | 'fade' | 'hook' | 'slice' | 'miss') {
     this.swingFeedback.innerText = text;
     this.swingFeedback.className = `swing-feedback feedback-${type}`;
+  }
+
+  public updateShotStats(carry: number, total: number, isFinal = false) {
+    const badge = document.getElementById('hud-shot-tracker');
+    const totalLabel = document.getElementById('hud-shot-total');
+    const breakdownLabel = document.getElementById('hud-shot-breakdown');
+    if (!badge || !totalLabel || !breakdownLabel) return;
+
+    if (total <= 1.5) {
+      badge.style.display = 'none';
+      return;
+    }
+
+    badge.style.display = 'flex';
+    const totalMeters = Math.round(total);
+    const totalYds = Math.round(total * 1.09361);
+    const carryMeters = Math.round(carry || total);
+    const rollMeters = Math.max(0, totalMeters - carryMeters);
+
+    totalLabel.innerHTML = `${totalMeters}m <span style="font-size: 13px; font-weight: normal; color: #94a3b8;">(${totalYds} yds)</span>`;
+    breakdownLabel.innerText = isFinal
+      ? `Carry: ${carryMeters}m | Roll: ${rollMeters}m`
+      : `In flight... ${totalMeters}m`;
   }
 
   public toggleMode(): 'designer' | 'play' {

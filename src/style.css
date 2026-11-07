@@ -449,6 +449,36 @@ html, body {
 .badge-bunker { background: #d97706; color: #fff; }
 .badge-water-hazard { background: #0284c7; color: #fff; }
 
+/* Last Shot Distance Card */
+.shot-tracker-badge {
+  margin-top: 6px;
+  background: rgba(5, 150, 105, 0.2);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shot-tracker-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #34d399;
+  letter-spacing: 0.8px;
+}
+
+.shot-tracker-total {
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.shot-tracker-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
 /* Wind Gauge */
 .hud-wind-gauge {
   position: absolute;

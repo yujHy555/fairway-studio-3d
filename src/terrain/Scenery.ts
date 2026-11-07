@@ -222,7 +222,7 @@ export class SceneryFactory {
   }
 
   /**
-   * Tee Markers (Pair of balls framing tee shot)
+   * Tournament Tee Markers (Pair of low-poly cubes framing the tee shot)
    */
   public createTeeMarkers(x: number, groundY: number, z: number, color = new Color3(1, 1, 1)): Mesh {
     const root = new Mesh(`tee_markers_${x}_${z}`, this.scene);
@@ -230,16 +230,17 @@ export class SceneryFactory {
 
     const mat = new StandardMaterial('matTeeMarker', this.scene);
     mat.diffuseColor = color;
+    mat.specularColor = new Color3(0.1, 0.1, 0.1);
 
-    // Left and right markers 4 meters apart
-    [-2.0, 2.0].forEach((offset, i) => {
-      const sphere = MeshBuilder.CreateSphere(`marker_${i}`, {
-        diameter: 0.16,
-        segments: 6
+    // Left and right tournament cubic tee blocks 4.4 meters apart
+    [-2.2, 2.2].forEach((offset, i) => {
+      const cube = MeshBuilder.CreateBox(`tee_cube_${i}`, {
+        size: 0.28
       }, this.scene);
-      sphere.position.set(offset, 0.08, 0);
-      sphere.material = mat;
-      sphere.parent = root;
+      cube.position.set(offset, 0.14, 0);
+      cube.rotation.y = (i === 0 ? 0.25 : -0.25);
+      cube.material = mat;
+      cube.parent = root;
     });
 
     return root;

@@ -120,6 +120,13 @@ export class CourseManager {
     this.activeTeeMesh = this.scenery.createTeeMarkers(hole.teePosition.x, teeY, hole.teePosition.z);
   }
 
+  public getSceneryMeshes(): Mesh[] {
+    const list: Mesh[] = [...this.sceneryMeshes];
+    if (this.activePinMesh) list.push(this.activePinMesh);
+    if (this.activeTeeMesh) list.push(this.activeTeeMesh);
+    return list;
+  }
+
   public addHole(par: 3 | 4 | 5 = 4, name?: string): GolfHole {
     if (this.courseData.holes.length >= 9) {
       alert('Maximum of 9 holes reached for this course.');

@@ -37,29 +37,35 @@ export class Ball {
   private atRestCounter = 0;
   private currentLie: SurfaceType = SurfaceType.TEE;
 
-  // Visual trajectory ribbon & aim arc
+  // Shot Distance Tracking
+  public shotOrigin: Vector3D = { x: 0, y: 0, z: 0 };
+  public carryDistance = 0;
+  public totalDistance = 0;
+  private hasLanded = false;
+
+  // Visual trajectory Toptracer ribbon (active only during shot)
   private tracerPoints: Vector3[] = [];
   private tracerMesh: LinesMesh | null = null;
-  private aimArcMesh: LinesMesh | null = null;
 
   // Callbacks
-  public onStateChange?: (state: BallState, lie: SurfaceType) => void;
+  public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
   public onHoleComplete?: () => void;
 
   constructor(scene: Scene, terrain: TerrainGrid) {
     this.scene = scene;
     this.terrain = terrain;
 
-    // Create 3D Golf Ball Mesh
+    // Create 3D Golf Ball Mesh with prominent visibility
     this.mesh = MeshBuilder.CreateSphere('golfBall', {
-      diameter: GOLF_CONSTANTS.BALL_RADIUS * 2,
-      segments: 8 // Low-poly faceted golf ball
+      diameter: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 2,
+      segments: 10
     }, this.scene);
 
     const mat = new StandardMaterial('ballMat', this.scene);
     mat.diffuseColor = new Color3(1.0, 1.0, 1.0);
-    mat.specularColor = new Color3(0.5, 0.5, 0.5);
-    mat.specularPower = 32;
+    mat.specularColor = new Color3(0.8, 0.8, 0.8);
+    mat.specularPower = 64;
+    mat.emissiveColor = new Color3(0.08, 0.08, 0.08); // Subtle glow for visibility against dark grass
     this.mesh.material = mat;
 
     // Register frame loop for flight aerodynamics & state transitions
@@ -77,7 +83,7 @@ export class Ball {
   }
 
   public setPosition(x: number, y: number, z: number) {
-    const minGroundY = this.terrain.getElevation(x, z) + GOLF_CONSTANTS.BALL_RADIUS;
+    const minGroundY = this.terrain.getElevation(x, z) + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
     const finalY = Math.max(minGroundY, y);
 
     this.mesh.position.set(x, finalY, z);
@@ -95,7 +101,17 @@ export class Ball {
     this.clearTracer();
     this.flightTime = 0;
     this.atRestCounter = 0;
+    this.hasLanded = false;
+    this.carryDistance = 0;
+    this.totalDistance = 0;
     this.state = BallState.IN_FLIGHT;
+
+    // Record shot start position for distance calculation
+    this.shotOrigin = {
+      x: this.mesh.position.x,
+      y: this.mesh.position.y,
+      z: this.mesh.position.z
+    };
 
     const windRad = (shot.windHeadingDeg * Math.PI) / 180.0;
     this.windVec = {
@@ -110,7 +126,10 @@ export class Ball {
 
     // Ensure ball starts above ground
     const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
-    this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RADIUS + 0.05;
+    this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS + 0.05;
+
+    // Add first tracer point
+    this.addTracerPoint(this.mesh.position.clone());
 
     // Play swing whoosh and impact sound
     soundFx.playSwingWhoosh(shot.powerPercent);
@@ -145,17 +164,27 @@ export class Ball {
       this.mesh.position.set(step.nextPos.x, step.nextPos.y, step.nextPos.z);
       this.addTracerPoint(this.mesh.position.clone());
 
-      // Ground collision detection (strictly clamped above ground)
+      // Update live total distance
+      const dx = this.mesh.position.x - this.shotOrigin.x;
+      const dz = this.mesh.position.z - this.shotOrigin.z;
+      this.totalDistance = Math.sqrt(dx * dx + dz * dz);
+
+      // Ground collision detection
       const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
-      if (this.mesh.position.y <= groundY + GOLF_CONSTANTS.BALL_RADIUS) {
-        this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RADIUS;
+      if (this.mesh.position.y <= groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS) {
+        this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+
+        if (!this.hasLanded) {
+          this.hasLanded = true;
+          this.carryDistance = this.totalDistance;
+        }
+
         this.handleGroundImpact(groundY);
       }
 
     } else if (this.state === BallState.ROLLING) {
-      // Ball rolling along terrain with slope influence & surface resistance
       const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
-      this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RADIUS;
+      this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
 
       const surface = this.terrain.getSurfaceAt(this.mesh.position.x, this.mesh.position.z);
       this.currentLie = surface;
@@ -166,9 +195,9 @@ export class Ball {
       const slopeForceX = -normal.x * 9.81;
       const slopeForceZ = -normal.z * 9.81;
 
-      // Dynamic surface rolling friction
+      // Realistic rolling friction with clean settling
       const speed = Math.sqrt(this.curVelocity.x * this.curVelocity.x + this.curVelocity.z * this.curVelocity.z);
-      const frictionDecay = Math.max(0, 1.0 - (props.rollingResistance * 3.5 + 0.1) * dt);
+      const frictionDecay = Math.max(0, 1.0 - (props.rollingResistance * 5.0 + 0.35) * dt);
 
       this.curVelocity.x = (this.curVelocity.x + slopeForceX * dt) * frictionDecay;
       this.curVelocity.z = (this.curVelocity.z + slopeForceZ * dt) * frictionDecay;
@@ -176,23 +205,28 @@ export class Ball {
       this.mesh.position.x += this.curVelocity.x * dt;
       this.mesh.position.z += this.curVelocity.z * dt;
 
+      // Update distance
+      const dx = this.mesh.position.x - this.shotOrigin.x;
+      const dz = this.mesh.position.z - this.shotOrigin.z;
+      this.totalDistance = Math.sqrt(dx * dx + dz * dz);
+
       this.addTracerPoint(this.mesh.position.clone());
 
       // Check water hazard
       if (surface === SurfaceType.WATER) {
         this.state = BallState.IN_WATER;
         soundFx.playWaterSplash();
-        this.onStateChange?.(this.state, this.currentLie);
+        this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
         return;
       }
 
-      // Check if ball has come to rest
-      if (speed < 0.05) {
+      // Decisive ball settling: stop creeping when speed drops below 0.35 m/s
+      if (speed < 0.35) {
         this.atRestCounter += dt;
-        if (this.atRestCounter > 0.3) {
+        if (this.atRestCounter > 0.15) {
           this.state = BallState.AT_REST;
           this.curVelocity = { x: 0, y: 0, z: 0 };
-          this.onStateChange?.(this.state, this.currentLie);
+          this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
         }
       } else {
         this.atRestCounter = 0;
@@ -201,7 +235,7 @@ export class Ball {
   }
 
   private handleGroundImpact(groundY: number) {
-    this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RADIUS;
+    this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
     const surface = this.terrain.getSurfaceAt(this.mesh.position.x, this.mesh.position.z);
     this.currentLie = surface;
     const props = SURFACE_PROPERTIES[surface];
@@ -217,12 +251,12 @@ export class Ball {
     const surfKey = surface === SurfaceType.GREEN ? 'green' :
                     surface === SurfaceType.BUNKER ? 'sand' :
                     surface === SurfaceType.ROUGH ? 'rough' : 'fairway';
-    soundFx.playBounce(surfKey, impactSpeed / 40.0);
+    soundFx.playBounce(surfKey, impactSpeed / 35.0);
 
     if (surface === SurfaceType.WATER) {
       this.state = BallState.IN_WATER;
       soundFx.playWaterSplash();
-      this.onStateChange?.(this.state, this.currentLie);
+      this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
       return;
     }
 
@@ -236,16 +270,16 @@ export class Ball {
 
     const bounceVy = -vNormY * props.restitution;
 
-    if (Math.abs(bounceVy) > 1.2 && surface !== SurfaceType.BUNKER) {
+    if (Math.abs(bounceVy) > 1.4 && surface !== SurfaceType.BUNKER) {
       this.curVelocity.x = vTangX * (1 - props.friction * 0.5) - vNormX * props.restitution;
       this.curVelocity.y = bounceVy;
       this.curVelocity.z = vTangZ * (1 - props.friction * 0.5) - vNormZ * props.restitution;
     } else {
       this.state = BallState.ROLLING;
       this.curVelocity.y = 0;
-      this.curVelocity.x = vTangX * (1 - props.friction * 0.3);
-      this.curVelocity.z = vTangZ * (1 - props.friction * 0.3);
-      this.onStateChange?.(this.state, this.currentLie);
+      this.curVelocity.x = vTangX * (1 - props.friction * 0.4);
+      this.curVelocity.z = vTangZ * (1 - props.friction * 0.4);
+      this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
     }
   }
 
@@ -262,7 +296,7 @@ export class Ball {
         this.mesh.position.set(pinPos.x, pinPos.y - GOLF_CONSTANTS.CUP_DEPTH * 0.8, pinPos.z);
         soundFx.playCupDrop();
         this.onHoleComplete?.();
-        this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM);
+        this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });
         return true;
       } else {
         this.curVelocity.x *= -0.4;
@@ -272,17 +306,18 @@ export class Ball {
     return false;
   }
 
+  // PGA Tour / Toptracer live flight ribbon (active strictly while ball is moving)
   private addTracerPoint(pt: Vector3) {
     this.tracerPoints.push(pt);
     if (this.tracerPoints.length > 2) {
       if (this.tracerMesh) {
         this.tracerMesh.dispose();
       }
-      this.tracerMesh = MeshBuilder.CreateLines('ballTracer', {
+      this.tracerMesh = MeshBuilder.CreateLines('ballToptracer', {
         points: this.tracerPoints,
         updatable: false
       }, this.scene);
-      this.tracerMesh.color = new Color3(1.0, 0.3, 0.1);
+      this.tracerMesh.color = new Color3(1.0, 0.28, 0.05); // PGA broadcast red-orange tracer
     }
   }
 
@@ -291,44 +326,6 @@ export class Ball {
     if (this.tracerMesh) {
       this.tracerMesh.dispose();
       this.tracerMesh = null;
-    }
-  }
-
-  public updateAimArc(shot: ShotResult) {
-    if (this.aimArcMesh) {
-      this.aimArcMesh.dispose();
-      this.aimArcMesh = null;
-    }
-
-    const startPos: Vector3D = {
-      x: this.mesh.position.x,
-      y: this.mesh.position.y + 0.05,
-      z: this.mesh.position.z
-    };
-
-    const points = Aerodynamics.predictTrajectory(
-      startPos,
-      shot,
-      0.08,
-      10.0,
-      (x, z) => this.terrain.getElevation(x, z)
-    );
-
-    const babylonPoints = points.map(p => new Vector3(p.position.x, p.position.y, p.position.z));
-
-    if (babylonPoints.length >= 2) {
-      this.aimArcMesh = MeshBuilder.CreateLines('aimArc', {
-        points: babylonPoints,
-        updatable: false
-      }, this.scene);
-      this.aimArcMesh.color = new Color3(0.3, 0.8, 1.0);
-    }
-  }
-
-  public clearAimArc() {
-    if (this.aimArcMesh) {
-      this.aimArcMesh.dispose();
-      this.aimArcMesh = null;
     }
   }
 }
