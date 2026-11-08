@@ -35,9 +35,9 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FAIRWAY]: {
     name: 'Fairway',
     color: [0.38, 0.70, 0.28],     // Crisp bright fairway green
-    restitution: 0.46,             // Solid, lively bounce forward
-    friction: 0.28,                // Low friction lets ball run
-    rollingResistance: 0.22,       // Natural PGA-style rollout (20-30m for driver)
+    restitution: 0.38,             // Controlled, realistic fairway bounce
+    friction: 0.35,                // Balanced fairway turf friction
+    rollingResistance: 0.32,       // Refined PGA-style rollout (~14-22m for driver)
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },

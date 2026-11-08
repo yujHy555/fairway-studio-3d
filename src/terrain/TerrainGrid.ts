@@ -56,6 +56,7 @@ export class TerrainGrid {
 
   private static patternTiles: Record<string, HTMLCanvasElement> | null = null;
   private teePhotoTile: HTMLCanvasElement | null = null;
+  private roughPhotoTile: HTMLCanvasElement | null = null;
   private sandPhotoTile: HTMLCanvasElement | null = null;
   private highResGrassDetailTex: DynamicTexture | null = null;
 
@@ -252,6 +253,15 @@ export class TerrainGrid {
     sandImg.onload = () => {
       const { canvas } = buildEqualizedPhotoCanvas(sandImg, 512, 18, 1.20);
       this.sandPhotoTile = canvas;
+      this.redrawSplatTexture();
+    };
+
+    // 3. Load genuine 4K PBR brown_mud_leaves_diff_2k.jpg for the Rough section
+    const roughImg = new Image();
+    roughImg.src = '/textures/pbr_rough/brown_mud_leaves_diff_2k.jpg';
+    roughImg.onload = () => {
+      const { canvas } = buildEqualizedPhotoCanvas(roughImg, 1024, 28, 1.05);
+      this.roughPhotoTile = canvas;
       this.redrawSplatTexture();
     };
   }
@@ -996,15 +1006,15 @@ export class TerrainGrid {
     dCtx.fillRect(0, 0, 1024, 1024);
     this.highResGrassDetailTex.update(false);
 
-    const turfNormalTex = RealisticTextures.createSeamlessTurfNormalTexture(this.scene);
-    turfNormalTex.uScale = 220;
-    turfNormalTex.vScale = 460;
-    turfNormalTex.level = 0.22;
+    const pbrRoughNormalTex = new Texture('/textures/pbr_rough/brown_mud_leaves_nor_2k.png', this.scene);
+    pbrRoughNormalTex.uScale = 85;
+    pbrRoughNormalTex.vScale = 175;
+    pbrRoughNormalTex.level = 0.35;
 
     const mat = new StandardMaterial('terrainMat', this.scene);
     mat.diffuseTexture = this.splatTexture;
     mat.ambientTexture = this.highResGrassDetailTex;
-    mat.bumpTexture = turfNormalTex;
+    mat.bumpTexture = pbrRoughNormalTex;
     mat.specularColor = new Color3(0.05, 0.06, 0.04);
     mat.specularPower = 48;
     mat.backFaceCulling = false;
@@ -1038,7 +1048,9 @@ export class TerrainGrid {
       return pat;
     };
 
-    const roughPattern = makeScaledPattern(tiles.rough, 0.25);
+    const roughPattern = this.roughPhotoTile
+      ? makeScaledPattern(this.roughPhotoTile, 0.20)
+      : makeScaledPattern(tiles.rough, 0.25);
     const firstCutPattern = makeScaledPattern(tiles.first_cut, 0.25);
     const fairwayPattern = makeScaledPattern(tiles.fairway, 0.25);
     const fringePattern = makeScaledPattern(tiles.fringe, 0.25);
@@ -1190,6 +1202,32 @@ export class TerrainGrid {
       pts.push({
         x: Math.cos(theta) * halfW,
         z: Math.sin(theta) * halfL
+      });
+    }
+    return pts;
+  }
+
+  private generateBunkerContourPoints(
+    halfW: number,
+    halfL: number,
+    scale: number,
+    offsetMeters: number,
+    shapeIndex: number,
+    segs = 256
+  ): { x: number; z: number }[] {
+    const pts: { x: number; z: number }[] = [];
+    for (let i = 0; i < segs; i++) {
+      const theta = (i / segs) * Math.PI * 2;
+      const k = TerrainGrid.getBunkerRadiusFactor(theta, shapeIndex);
+      const cosT = Math.cos(theta);
+      const sinT = Math.sin(theta);
+      const baseRad = Math.hypot(halfW * cosT, halfL * sinT) * k;
+      const rSand = baseRad * scale;
+      const rTotal = rSand + offsetMeters;
+      const ratio = rTotal / Math.max(0.001, rSand);
+      pts.push({
+        x: cosT * halfW * k * scale * ratio,
+        z: sinT * halfL * k * scale * ratio
       });
     }
     return pts;
@@ -1401,11 +1439,11 @@ export class TerrainGrid {
       ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.BUNKER) {
-      // PGA Tour 2K25 organic bunker style: defined 1.35m revetted sod lip & silky smooth texture blending
+      // PGA Tour 2K25 organic bunker style: 100% mathematically aligned revetted sod lip & silky smooth texture blending
       const shapeIdx = feat.bunkerShapeIndex ?? (Math.floor(feat.centerX * 0.35 + feat.centerZ * 0.65) % 5);
-      const baseSandPts = this.generateKidneyMeterPoints(halfW, halfL, 0.82, shapeIdx, 256);
-      const lipPts = this.computeUniformOffsetPolygon(baseSandPts, 1.35);
-      const outerCollarPts = this.computeUniformOffsetPolygon(baseSandPts, 2.30);
+      const baseSandPts = this.generateBunkerContourPoints(halfW, halfL, 0.82, 0, shapeIdx, 256);
+      const lipPts = this.generateBunkerContourPoints(halfW, halfL, 0.82, 1.35, shapeIdx, 256);
+      const outerCollarPts = this.generateBunkerContourPoints(halfW, halfL, 0.82, 2.45, shapeIdx, 256);
 
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';

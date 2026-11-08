@@ -383,9 +383,8 @@ export class UIController {
     windDeg: number
   ) {
     this.distanceToPinLabel.innerHTML = `${Math.round(distMeters)}<span class="unit">m</span>`;
-    const yards = Math.round(distMeters * 1.09361);
     const ydsElem = document.getElementById('hud-dist-yards');
-    if (ydsElem) ydsElem.innerText = `${yards} yds to pin`;
+    if (ydsElem) ydsElem.innerText = `${Math.round(distMeters)}m to pin`;
 
     this.strokeCounterLabel.innerText = `${strokes}`;
     this.holeTitleLabel.innerText = `Hole ${hole.number}: ${hole.name}`;
@@ -399,7 +398,9 @@ export class UIController {
     // Club
     this.clubNameLabel.innerText = club.name;
     this.clubLoftLabel.innerText = `Loft: ${club.loftDegrees}°`;
-    this.clubCarryLabel.innerText = `Typical: ${club.typicalCarryMeters}m (${Math.round(club.typicalCarryMeters * 1.09361)} yds)`;
+    const maxPrefix = club.id === 'driver' ? 'Max: 300m • ' : '';
+    this.clubCarryLabel.innerText = `${maxPrefix}Typical: ${club.typicalCarryMeters}m`;
+    this.updateClubCard(club.id);
 
     // Wind
     this.windSpeedLabel.innerText = `${windMps.toFixed(1)} m/s (${Math.round(windMps * 2.23694)} mph)`;
@@ -467,14 +468,44 @@ export class UIController {
 
     badge.style.display = 'flex';
     const totalMeters = Math.round(total);
-    const totalYds = Math.round(total * 1.09361);
     const carryMeters = Math.round(carry || total);
     const rollMeters = Math.max(0, totalMeters - carryMeters);
 
-    totalLabel.innerHTML = `${totalMeters}m <span style="font-size: 13px; font-weight: normal; color: #94a3b8;">(${totalYds} yds)</span>`;
+    totalLabel.innerHTML = `${totalMeters}m`;
     breakdownLabel.innerText = isFinal
       ? `Carry: ${carryMeters}m | Roll: ${rollMeters}m`
       : `In flight... ${totalMeters}m`;
+  }
+
+  public updateClubCard(clubId: string, isBallInMotion = false) {
+    const driverCard = document.getElementById('club-card-driver');
+    const putterCard = document.getElementById('club-card-putter');
+    if (!driverCard || !putterCard) return;
+
+    if (isBallInMotion) {
+      driverCard.classList.add('fade-out');
+      putterCard.classList.add('fade-out');
+      driverCard.classList.add('hidden');
+      putterCard.classList.add('hidden');
+      return;
+    }
+
+    if (clubId === 'driver') {
+      putterCard.classList.add('hidden');
+      putterCard.classList.add('fade-out');
+      driverCard.classList.remove('hidden');
+      driverCard.classList.remove('fade-out');
+    } else if (clubId === 'putter') {
+      driverCard.classList.add('hidden');
+      driverCard.classList.add('fade-out');
+      putterCard.classList.remove('hidden');
+      putterCard.classList.remove('fade-out');
+    } else {
+      driverCard.classList.add('hidden');
+      driverCard.classList.add('fade-out');
+      putterCard.classList.add('hidden');
+      putterCard.classList.add('fade-out');
+    }
   }
 
   public setSwingEnabled(enabled: boolean) {
@@ -501,8 +532,7 @@ export class UIController {
     const distElem = document.getElementById('hud-aim-target-dist');
     const elevElem = document.getElementById('hud-aim-elev');
     if (distElem) {
-      const yds = Math.round(targetDistMeters * 1.09361);
-      distElem.innerText = `TARGET: ${Math.round(targetDistMeters)}m (${yds} yds)`;
+      distElem.innerText = `TARGET: ${Math.round(targetDistMeters)}m`;
     }
     if (elevElem) {
       const sign = elevationDiffMeters >= 0 ? '+' : '';

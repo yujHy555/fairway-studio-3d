@@ -1220,3 +1220,43 @@ html, body {
   width: 100%;
 }
 
+/* ==========================================================================
+   Bottom-Right Driver & Putter Showcase Cards
+   ========================================================================== */
+.club-card-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 524px;
+  height: 292px;
+  z-index: 1200;
+  pointer-events: none;
+  user-select: none;
+}
+
+.club-card-img {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 524px;
+  height: 292px;
+  display: block;
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.70), 0 4px 16px rgba(0, 0, 0, 0.45);
+  transition: transform 0.48s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.38s ease-out;
+  transform: translateX(0) scale(1);
+  opacity: 1;
+}
+
+.club-card-img.hidden {
+  transform: translateX(115%) scale(0.92);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.club-card-img.fade-out {
+  transform: translateX(120%) scale(0.94);
+  opacity: 0;
+  pointer-events: none;
+}
+

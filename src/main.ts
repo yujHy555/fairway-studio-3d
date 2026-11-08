@@ -232,17 +232,17 @@ class FairwayStudioApp {
       if (CascadedShadowGenerator.IsSupported) {
         const csm = new CascadedShadowGenerator(2048, sun);
         csm.numCascades = 4;
-        csm.lambda = 0.72; // Balanced cascade distribution for crisp close-ups and solid distant shadows
-        csm.shadowMaxZ = 520; // Reaches from tee box past the green backdrop
+        csm.lambda = 0.68; // Balanced cascade distribution for crisp close-ups and solid distant shadows
+        csm.shadowMaxZ = 460; // Optimal depth span completely eliminating distance shadow flickering
         csm.stabilizeCascades = true; // Locks cascade bounds to texel grid, preventing camera-orbit shimmering
         csm.depthClamp = true; // Prevents near/far plane depth clipping flicker
         csm.autoCalcDepthBounds = false;
-        csm.cascadeBlendPercentage = 0.25; // Smooth 25% overlap between cascades eliminates pop seams
+        csm.cascadeBlendPercentage = 0.28; // Smooth overlap between cascades eliminates pop seams
         csm.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
         csm.penumbraDarkness = 0.24;
         csm.darkness = 0.22;
-        csm.bias = 0.00028; // Completely eliminates shadow acne flickering
-        csm.normalBias = 0.0006; // Smooth normal projection offset preventing self-shadow artifacts
+        csm.bias = 0.00065; // Completely eliminates shadow acne & distant surface flickering
+        csm.normalBias = 0.0016; // Stable normal projection offset preventing self-shadow artifacts
         csm.transparencyShadow = true; // Casts real alpha-cutout shadows from foliage
         this.shadowGenerator = csm;
       } else {
@@ -599,6 +599,8 @@ class FairwayStudioApp {
         this.aimSystem.setVisible(false);
       }
       this.ui.setSwingEnabled(false);
+      // Smooth slick transition out for Driver/Putter card as ball is hit
+      this.ui.updateClubCard(this.activeClub.id, true);
       this.ball.launch(shot, this.courseManager.currentHole.pinPosition);
 
       if (Math.abs(shot.accuracyOffset) < 0.15) {

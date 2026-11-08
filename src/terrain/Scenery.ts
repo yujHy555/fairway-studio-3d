@@ -1246,8 +1246,8 @@ export class SceneryFactory {
     matTeeRed.specularColor = new Color3(0.55, 0.45, 0.45);
     matTeeRed.specularPower = 64;
 
-    const size = 0.125;
-    const cornerRadius = 0.022;
+    const size = 0.10;
+    const cornerRadius = 0.0176;
 
     [-2.4, 2.4].forEach((offset, i) => {
       // 1. Core cube body
@@ -1276,10 +1276,10 @@ export class SceneryFactory {
       // 3. Grounding brass bezel plate at turf level
       const brassPlate = MeshBuilder.CreateBox(`tee_brass_plate_${i}`, {
         width: size * 1.12,
-        height: 0.016,
+        height: 0.013,
         depth: size * 1.12
       }, this.scene);
-      brassPlate.position.set(offset, 0.008, 0);
+      brassPlate.position.set(offset, 0.0065, 0);
       brassPlate.material = this.matGoldTrim;
       brassPlate.receiveShadows = true;
       brassPlate.parent = root;
