@@ -105,7 +105,13 @@ export class UIController {
             <span>📂 Import</span>
             <input type="file" id="input-import-course" accept=".json" style="display:none;" />
           </label>
-          <button id="btn-sound-mute" class="btn btn-icon" title="Mute/Unmute Audio">
+          <button id="btn-ambient-mute" class="btn btn-icon" title="Forest Ambience (Mute/Unmute)">
+            <span id="ambient-mute-icon">🌲 🔊</span>
+          </button>
+          <button id="btn-sfx-mute" class="btn btn-icon" title="Golf Hit & Cup SFX (Mute/Unmute)">
+            <span id="sfx-mute-icon">⛳ 🔊</span>
+          </button>
+          <button id="btn-sound-mute" class="btn btn-icon" title="Master Audio Mute" style="display:none;">
             <span id="mute-icon">🔊</span>
           </button>
         </div>
@@ -611,11 +617,40 @@ export class UIController {
       this.toggleMode();
     });
 
-    // Mute
-    document.getElementById('btn-sound-mute')!.addEventListener('click', () => {
-      const muted = soundFx.toggleMute();
-      document.getElementById('mute-icon')!.innerText = muted ? '🔇' : '🔊';
-    });
+    // Ambience & SFX Independent Audio Controls
+    const btnAmbient = document.getElementById('btn-ambient-mute');
+    if (btnAmbient) {
+      btnAmbient.addEventListener('click', () => {
+        const muted = soundFx.toggleAmbientMute();
+        const icon = document.getElementById('ambient-mute-icon');
+        if (icon) icon.innerText = muted ? '🌲 🔇' : '🌲 🔊';
+        btnAmbient.classList.toggle('active-muted', muted);
+      });
+    }
+
+    const btnSfx = document.getElementById('btn-sfx-mute');
+    if (btnSfx) {
+      btnSfx.addEventListener('click', () => {
+        const muted = soundFx.toggleSfxMute();
+        const icon = document.getElementById('sfx-mute-icon');
+        if (icon) icon.innerText = muted ? '⛳ 🔇' : '⛳ 🔊';
+        btnSfx.classList.toggle('active-muted', muted);
+      });
+    }
+
+    // Legacy Master Mute fallback
+    const btnSound = document.getElementById('btn-sound-mute');
+    if (btnSound) {
+      btnSound.addEventListener('click', () => {
+        const muted = soundFx.toggleMute();
+        const icon = document.getElementById('mute-icon');
+        if (icon) icon.innerText = muted ? '🔇' : '🔊';
+        const ambIcon = document.getElementById('ambient-mute-icon');
+        if (ambIcon) ambIcon.innerText = muted ? '🌲 🔇' : '🌲 🔊';
+        const sfxIcon = document.getElementById('sfx-mute-icon');
+        if (sfxIcon) sfxIcon.innerText = muted ? '⛳ 🔇' : '⛳ 🔊';
+      });
+    }
 
     // Grid toggle
     document.getElementById('btn-toggle-grid')!.addEventListener('click', () => {

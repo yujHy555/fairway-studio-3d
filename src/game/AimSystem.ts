@@ -4,17 +4,17 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
-  DynamicTexture,
-  Material,
-  Color3
+  Color3,
+  ShadowGenerator
 } from '@babylonjs/core';
 import { ClubSpec } from '../core/Types';
 import { TerrainGrid } from '../terrain/TerrainGrid';
 
 /**
- * Clean PGA Tour Aim State Tracker & Modern 3D Directional Arrow Indicator
- * Displays a sleek, terrain-conforming 3D directional arrow in front of the ball
- * whenever the player uses the aiming arrow keys to dial in their shot heading.
+ * Modern PGA-Style 3D Directional Aim Chevron Indicator
+ * Modeled precisely on the broadcast arrow design reference:
+ * A sleek golden-yellow chevron hovering slightly above the turf (10cm)
+ * and casting a real-time shadow onto the terrain.
  */
 export class AimSystem {
   private scene: Scene;
@@ -27,124 +27,132 @@ export class AimSystem {
 
   private arrowMesh: Mesh;
   private arrowMat: StandardMaterial;
-  private arrowTex: DynamicTexture;
-  private isArrowActive: boolean = false;
+  private isArrowActive: boolean = true;
   private pulseTime: number = 0;
 
-  constructor(scene: Scene, terrain: TerrainGrid) {
+  constructor(
+    scene: Scene,
+    terrain: TerrainGrid,
+    shadowGenerator?: ShadowGenerator | { addShadowCaster: (mesh: Mesh) => void } | null
+  ) {
     this.scene = scene;
     this.terrain = terrain;
 
-    this.arrowMesh = new Mesh('cup_modernAimArrow', this.scene);
+    this.arrowMesh = new Mesh('cup_modernAimChevron', this.scene);
     this.arrowMesh.isPickable = false;
-    this.arrowMesh.setEnabled(false);
+    this.arrowMesh.receiveShadows = false;
 
-    this.arrowTex = new DynamicTexture('modernAimArrowTex', { width: 256, height: 512 }, this.scene, false);
-    this.drawModernArrowTexture();
+    // Build the extruded 3D chevron arrow geometry (matching reference image)
+    this.buildChevronGeometry();
 
-    this.arrowMat = new StandardMaterial('modernAimArrowMat', this.scene);
-    this.arrowMat.diffuseTexture = this.arrowTex;
-    this.arrowMat.opacityTexture = this.arrowTex;
-    this.arrowMat.emissiveColor = new Color3(0.20, 0.96, 0.72);
-    this.arrowMat.specularColor = new Color3(0, 0, 0);
-    this.arrowMat.disableLighting = true;
-    this.arrowMat.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    // Radiant Golden-Yellow Broadcast Material
+    this.arrowMat = new StandardMaterial('modernAimChevronMat', this.scene);
+    this.arrowMat.diffuseColor = Color3.FromHexString('#FFB800'); // Vivid golden amber
+    this.arrowMat.emissiveColor = new Color3(0.32, 0.22, 0.02);  // Luminous broadcast glow
+    this.arrowMat.specularColor = new Color3(0.95, 0.88, 0.40);
+    this.arrowMat.specularPower = 64;
     this.arrowMat.backFaceCulling = false;
-    this.arrowMat.zOffset = -2;
     this.arrowMesh.material = this.arrowMat;
+
+    // Register with ShadowGenerator so it casts a real-time soft shadow onto the turf below
+    if (shadowGenerator && typeof shadowGenerator.addShadowCaster === 'function') {
+      shadowGenerator.addShadowCaster(this.arrowMesh);
+    }
   }
 
   /**
-   * Renders a sleek, modern broadcast-style directional arrow with forward chevrons
-   * onto a high-res alpha texture (V=0 is near the ball, V=1 is the arrowhead tip).
+   * Generates the 3D extruded chevron prism matching media_1794131913300_507d6353.jpg:
+   * 6 perimeter vertices in X-Z local space, extruded along Y by 0.038m with crisp bevel normals.
    */
-  private drawModernArrowTexture() {
-    const ctx = this.arrowTex.getContext() as CanvasRenderingContext2D;
-    const W = 256;
-    const H = 512;
-    ctx.clearRect(0, 0, W, H);
+  private buildChevronGeometry() {
+    const halfW = 0.27; // Total width 0.54m
+    const halfL = 0.29; // Total length 0.58m
+    const shoulderL = 0.07;
+    const notchL = -0.07;
+    const halfH = 0.019; // Thickness ~0.038m
 
-    // Note: in Babylon UV space, canvas Y=0 is at the far tip (V=1) and canvas Y=H is near the ball (V=0)
-    // Soft outer glow behind the shaft & arrowhead
-    const glowGrad = ctx.createLinearGradient(0, H, 0, 0);
-    glowGrad.addColorStop(0.0, 'rgba(16, 245, 165, 0.0)');
-    glowGrad.addColorStop(0.25, 'rgba(16, 245, 165, 0.35)');
-    glowGrad.addColorStop(0.85, 'rgba(56, 255, 200, 0.85)');
-    glowGrad.addColorStop(1.0, 'rgba(255, 255, 255, 0.95)');
+    // 6 2D local polygon vertices in clockwise order (Z+ is forward, X+ is right)
+    const poly2D = [
+      { x: 0, z: halfL },          // 0: Apex tip (forward)
+      { x: halfW, z: shoulderL },   // 1: Right shoulder
+      { x: halfW, z: -halfL },      // 2: Right bottom corner
+      { x: 0, z: notchL },          // 3: Inner chevron notch
+      { x: -halfW, z: -halfL },     // 4: Left bottom corner
+      { x: -halfW, z: shoulderL }   // 5: Left shoulder
+    ];
 
-    // 1. Tapered sleek central shaft (from Y = 460 up to Y = 135)
-    ctx.fillStyle = glowGrad;
-    ctx.beginPath();
-    ctx.moveTo(128 - 10, 465);
-    ctx.lineTo(128 + 10, 465);
-    ctx.lineTo(128 + 20, 140);
-    ctx.lineTo(128 - 20, 140);
-    ctx.closePath();
-    ctx.fill();
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
 
-    // Crisp dark contrast outline on shaft
-    ctx.strokeStyle = 'rgba(6, 38, 28, 0.65)';
-    ctx.lineWidth = 4;
-    ctx.stroke();
+    // --- Top Face (Y = +halfH, Normal = (0, 1, 0)) ---
+    const topBase = positions.length / 3;
+    for (let i = 0; i < 6; i++) {
+      positions.push(poly2D[i].x, halfH, poly2D[i].z);
+      normals.push(0, 1, 0);
+    }
+    // Triangulate top face (convex split into 4 triangles: 0-1-3, 1-2-3, 0-3-5, 5-3-4)
+    indices.push(topBase + 0, topBase + 1, topBase + 3);
+    indices.push(topBase + 1, topBase + 2, topBase + 3);
+    indices.push(topBase + 0, topBase + 3, topBase + 5);
+    indices.push(topBase + 5, topBase + 3, topBase + 4);
 
-    // 2. Three modern forward speed chevrons along the shaft
-    const chevronYs = [380, 295, 210];
-    for (let i = 0; i < chevronYs.length; i++) {
-      const cy = chevronYs[i];
-      const halfSpan = 38 + i * 6;
-      ctx.fillStyle = i === 2 ? '#ffffff' : 'rgba(185, 255, 232, 0.92)';
-      ctx.beginPath();
-      ctx.moveTo(128 - halfSpan, cy + 26);
-      ctx.lineTo(128, cy - 8);
-      ctx.lineTo(128 + halfSpan, cy + 26);
-      ctx.lineTo(128 + halfSpan - 11, cy + 36);
-      ctx.lineTo(128, cy + 10);
-      ctx.lineTo(128 - halfSpan + 11, cy + 36);
-      ctx.closePath();
-      ctx.fill();
+    // --- Bottom Face (Y = -halfH, Normal = (0, -1, 0)) ---
+    const botBase = positions.length / 3;
+    for (let i = 0; i < 6; i++) {
+      positions.push(poly2D[i].x, -halfH, poly2D[i].z);
+      normals.push(0, -1, 0);
+    }
+    // Bottom face has reversed winding
+    indices.push(botBase + 0, botBase + 3, botBase + 1);
+    indices.push(botBase + 1, botBase + 3, botBase + 2);
+    indices.push(botBase + 0, botBase + 5, botBase + 3);
+    indices.push(botBase + 5, botBase + 4, botBase + 3);
+
+    // --- 6 Side Walls (connecting top to bottom with outward facet normals) ---
+    for (let i = 0; i < 6; i++) {
+      const next = (i + 1) % 6;
+      const p1 = poly2D[i];
+      const p2 = poly2D[next];
+
+      const dx = p2.x - p1.x;
+      const dz = p2.z - p1.z;
+      const len = Math.hypot(dx, dz) || 1.0;
+      // 2D outward normal is (dz, -dx) / len
+      const nx = dz / len;
+      const nz = -dx / len;
+
+      const sideBase = positions.length / 3;
+      // 4 vertices per side quad
+      positions.push(p1.x, halfH, p1.z);   // 0: top p1
+      positions.push(p2.x, halfH, p2.z);   // 1: top p2
+      positions.push(p2.x, -halfH, p2.z);  // 2: bot p2
+      positions.push(p1.x, -halfH, p1.z);  // 3: bot p1
+
+      normals.push(nx, 0, nz);
+      normals.push(nx, 0, nz);
+      normals.push(nx, 0, nz);
+      normals.push(nx, 0, nz);
+
+      indices.push(sideBase + 0, sideBase + 1, sideBase + 2);
+      indices.push(sideBase + 0, sideBase + 2, sideBase + 3);
     }
 
-    // 3. Sleek swept-wing arrowhead at the front tip (Y = 18..155)
-    const tipGrad = ctx.createLinearGradient(0, 155, 0, 18);
-    tipGrad.addColorStop(0, '#22f5a8');
-    tipGrad.addColorStop(0.6, '#7affd2');
-    tipGrad.addColorStop(1, '#ffffff');
-
-    ctx.fillStyle = tipGrad;
-    ctx.beginPath();
-    ctx.moveTo(128, 18);          // Sharp front apex
-    ctx.lineTo(206, 148);         // Right swept wingtip
-    ctx.lineTo(164, 132);         // Right inner notch
-    ctx.lineTo(128, 92);          // Center inner notch
-    ctx.lineTo(92, 132);          // Left inner notch
-    ctx.lineTo(50, 148);          // Left swept wingtip
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(6, 42, 30, 0.78)';
-    ctx.lineWidth = 5;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-
-    this.arrowTex.hasAlpha = true;
-    this.arrowTex.update(false);
+    const vd = new VertexData();
+    vd.positions = positions;
+    vd.normals = normals;
+    vd.indices = indices;
+    vd.applyToMesh(this.arrowMesh, false);
   }
 
   public setVisible(visible: boolean) {
     this.isVisible = visible;
-    if (!visible) {
-      this.hideAimArrow();
-    }
+    this.arrowMesh.setEnabled(visible && this.isArrowActive);
   }
 
-  /**
-   * Called when the player presses Left/Right aiming arrow keys (or UI aim buttons)
-   * so the modern directional arrow immediately appears and tracks the chosen direction.
-   */
-  public showAimArrow(ballPos: Vector3) {
+  public showAimArrow(_ballPos: Vector3) {
     this.isArrowActive = true;
-    this.arrowMesh.setEnabled(true);
-    this.rebuildConformingArrowGeometry(ballPos);
+    this.arrowMesh.setEnabled(this.isVisible);
   }
 
   public hideAimArrow() {
@@ -167,61 +175,6 @@ export class AimSystem {
     this.aimHeadingDeg = (Math.atan2(dx, dz) * 180) / Math.PI;
   }
 
-  private rebuildConformingArrowGeometry(ballPos: Vector3) {
-    const rad = (this.aimHeadingDeg * Math.PI) / 180.0;
-    const dirX = Math.sin(rad);
-    const dirZ = Math.cos(rad);
-    const rightX = Math.cos(rad);
-    const rightZ = -Math.sin(rad);
-
-    const startDist = 0.18;
-    const endDist = 2.35;
-    const halfWidth = 0.28;
-    const segments = 14;
-
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const d = startDist + (endDist - startDist) * t;
-      const cx = ballPos.x + dirX * d;
-      const cz = ballPos.z + dirZ * d;
-
-      const lx = cx - rightX * halfWidth;
-      const lz = cz - rightZ * halfWidth;
-      const ly = this.terrain.getElevation(lx, lz) + 0.018;
-
-      const rx = cx + rightX * halfWidth;
-      const rz = cz + rightZ * halfWidth;
-      const ry = this.terrain.getElevation(rx, rz) + 0.018;
-
-      positions.push(lx, ly, lz);
-      positions.push(rx, ry, rz);
-
-      normals.push(0, 1, 0);
-      normals.push(0, 1, 0);
-
-      uvs.push(0, 1 - t);
-      uvs.push(1, 1 - t);
-
-      if (i < segments) {
-        const base = i * 2;
-        indices.push(base, base + 2, base + 1);
-        indices.push(base + 1, base + 2, base + 3);
-      }
-    }
-
-    const vd = new VertexData();
-    vd.positions = positions;
-    vd.normals = normals;
-    vd.uvs = uvs;
-    vd.indices = indices;
-    vd.applyToMesh(this.arrowMesh, false);
-  }
-
   public update(
     ballPos: Vector3,
     _club: ClubSpec,
@@ -235,16 +188,25 @@ export class AimSystem {
 
     this.targetPosition.set(targetX, groundY, targetZ);
 
-    if (this.isArrowActive && this.isVisible) {
-      this.pulseTime += 0.06;
-      this.arrowMat.alpha = 0.84 + Math.sin(this.pulseTime) * 0.14;
-      this.rebuildConformingArrowGeometry(ballPos);
-    }
+    // Position 3D golden chevron 1.35m ahead of the ball, floating 10cm above turf
+    const arrowDist = 1.35;
+    const arrowX = ballPos.x + Math.sin(rad) * arrowDist;
+    const arrowZ = ballPos.z + Math.cos(rad) * arrowDist;
+    const arrowGroundY = this.terrain.getElevation(arrowX, arrowZ);
+
+    this.arrowMesh.position.set(arrowX, arrowGroundY + 0.10, arrowZ);
+    this.arrowMesh.rotation.y = rad;
+
+    // Subtle gentle broadcast breathing pulse
+    this.pulseTime += 0.04;
+    const scale = 1.0 + Math.sin(this.pulseTime) * 0.035;
+    this.arrowMesh.scaling.set(scale, scale, scale);
+
+    this.arrowMesh.setEnabled(this.isVisible && this.isArrowActive);
   }
 
   public dispose() {
     this.arrowMesh.dispose();
     this.arrowMat.dispose();
-    this.arrowTex.dispose();
   }
 }

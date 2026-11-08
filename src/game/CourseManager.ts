@@ -69,14 +69,14 @@ export class CourseManager {
       { x: 145, z: 334, width: 28 }
     ]);
 
-    // 3. Right Dogleg Corner Kidney Bunker (flanks the dogleg pinch outside the fairway contour)
-    this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -1.35, 0.72);
+    // 3. Right Dogleg Corner Scalloped Bunker (Variant 2: asymmetric waist & entry tongue)
+    this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -0.80, 0.15, undefined, 2);
 
-    // 4. Left Outer Elbow Kidney Bunker (flanks the outer elbow outside the fairway contour)
-    this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
+    // 4. Left Outer Elbow Classic Curved Kidney Bunker (Variant 0: concave bay hugging the bend)
+    this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -0.82, 0.18, undefined, 0);
 
-    // 4b. Middle Fairway Hazard Bunker at 250m from Tee Box (guards central fairway landing zone)
-    this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -1.35, 0.70);
+    // 4b. Middle Fairway Hazard Bunker at 250m (Variant 3: streamlined teardrop hazard guarding landing zone)
+    this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -0.80, 0.16, undefined, 3);
 
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
     const pondRimElevation = this.terrain.getBaseElevation(168, 282);
@@ -87,16 +87,37 @@ export class CourseManager {
     // 6. Lower Tournament Green at (148, 360) — sits ~0.95m lower than the approach fairway
     this.terrain.stampFeature(148, 360, 28, 34, 0.15, SurfaceType.GREEN, 0.0);
 
-    // 7. Greenside Front-Left Kidney Bunker nestled just next to the green collar
-    this.terrain.stampFeature(123, 353, 12, 20, 0.22, SurfaceType.BUNKER, -1.35, 0.08);
+    // 7. Greenside Front-Left Tri-Lobed Bunker (Variant 1: tri-lobed fingers wrapping around front-left green collar)
+    this.terrain.stampFeature(123, 353, 12, 20, 0.22, SurfaceType.BUNKER, -0.78, 0.08, undefined, 1);
 
-    // 8. Greenside Right Kidney Bunker nestled just next to the green collar
-    this.terrain.stampFeature(172, 365, 11, 18, -0.28, SurfaceType.BUNKER, -1.30, 0.08);
+    // 8. Greenside Right Clover Apron Bunker (Variant 4: scalloped clover lobes guarding right water approach)
+    this.terrain.stampFeature(172, 365, 11, 18, -0.28, SurfaceType.BUNKER, -0.75, 0.08, undefined, 4);
 
-    // 9. Place 2 high-detail Hero Trees (hero_tree_01_01.glb) framing the Elevated Tee Box
+    // 9. Scatter High-Detail Hero Specimen Trees (hero_tree_01_01.glb) with varied scaling and orientation:
+    // Framing Elevated Tee Box, flanking fairway rough borders, and creating majestic backdrops behind the green
     const heroTreePositions = [
-      { x: 75, z: 48, s: 1.0, rot: 0.45 },
-      { x: 115, z: 50, s: 0.96, rot: 2.35 }
+      // Elevated Tee Box Framing
+      { x: 74, z: 48, s: 1.05, rot: 0.45 },
+      { x: 116, z: 50, s: 0.94, rot: 2.35 },
+
+      // Left Rough Corridor along Dogleg Fairway
+      { x: 68, z: 125, s: 1.18, rot: 1.20 },
+      { x: 74, z: 180, s: 0.88, rot: 3.10 },
+      { x: 70, z: 245, s: 1.25, rot: 0.80 },
+      { x: 92, z: 295, s: 0.92, rot: 4.40 },
+
+      // Right Rough Corridor along Dogleg Fairway
+      { x: 135, z: 115, s: 0.90, rot: 5.10 },
+      { x: 148, z: 165, s: 1.22, rot: 2.70 },
+      { x: 156, z: 230, s: 1.05, rot: 1.50 },
+      { x: 158, z: 305, s: 0.85, rot: 3.80 },
+
+      // Behind & Framing the Putting Green Complex
+      { x: 130, z: 388, s: 1.30, rot: 0.90 },
+      { x: 148, z: 396, s: 1.12, rot: 2.40 },
+      { x: 168, z: 388, s: 1.22, rot: 4.10 },
+      { x: 120, z: 370, s: 0.86, rot: 1.70 },
+      { x: 176, z: 358, s: 0.95, rot: 3.30 }
     ];
     for (const h of heroTreePositions) {
       const hy = this.terrain.getElevation(h.x, h.z);

@@ -63,14 +63,15 @@ export class SceneryFactory {
     // 1. Realistic GLB Pine Tree Material (pine_tree_medium_01_01.glb)
     // Naturally reacts to directional sun and HDRI environment light with clean needle alpha testing
     this.matGlbPineTree = new StandardMaterial('matGlbPineTree', scene);
-    this.matGlbPineTree.diffuseColor = new Color3(0.88, 0.92, 0.84);
-    this.matGlbPineTree.emissiveColor = new Color3(0.03, 0.04, 0.02); // Subtle natural sky bounce (never blown out)
-    this.matGlbPineTree.specularColor = new Color3(0.03, 0.04, 0.03);
-    this.matGlbPineTree.specularPower = 48;
+    this.matGlbPineTree.diffuseColor = new Color3(1.0, 1.05, 0.95);
+    // Rich natural translucent foliage ambient bounce (matching hero trees, eliminates dark/black planes)
+    this.matGlbPineTree.emissiveColor = new Color3(0.20, 0.26, 0.16);
+    this.matGlbPineTree.specularColor = new Color3(0.04, 0.05, 0.03);
+    this.matGlbPineTree.specularPower = 32;
     this.matGlbPineTree.backFaceCulling = false;
-    this.matGlbPineTree.twoSidedLighting = true; // Natural lighting on both faces of crossed planes
+    this.matGlbPineTree.twoSidedLighting = false; // Prevents back-face normals from being inverted into shadow
     this.matGlbPineTree.transparencyMode = Material.MATERIAL_ALPHATEST;
-    this.matGlbPineTree.alphaCutOff = 0.46;
+    this.matGlbPineTree.alphaCutOff = 0.44;
 
     // 1b. Hero Specimen Tree Materials (hero_tree_01_01.glb)
     this.matHeroBranches = new StandardMaterial('matHeroBranches', scene);
@@ -268,6 +269,10 @@ export class SceneryFactory {
       const posBV = gltf.bufferViews[posAccessor.bufferView];
       const rawPos = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAccessor.count * 3);
 
+      const normAccessor = gltf.accessors[prim.attributes.NORMAL];
+      const normBV = normAccessor ? gltf.bufferViews[normAccessor.bufferView] : null;
+      const rawNormals = normBV ? new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAccessor.count * 3) : null;
+
       const uvAccessor = gltf.accessors[prim.attributes.TEXCOORD_0];
       const uvBV = gltf.bufferViews[uvAccessor.bufferView];
       const rawUvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAccessor.count * 2);
@@ -290,11 +295,10 @@ export class SceneryFactory {
         positions[i * 3 + 1] = py;
         positions[i * 3 + 2] = pz;
 
-        // Radial 3D canopy normal so trees react naturally to sunlight and cast soft self-shadows
-        const rLen = Math.hypot(px, pz) || 1.0;
-        const nx = (px / rLen) * 0.68;
-        const ny = 0.42 + 0.35 * Math.min(1.0, Math.max(0, py / 12.0));
-        const nz = (pz / rLen) * 0.68;
+        // Author-designed foliage normals: upward-facing vectors ensure consistent, lush 360-degree illumination
+        let nx = rawNormals ? rawNormals[i * 3] : 0;
+        let ny = rawNormals ? Math.max(0.68, rawNormals[i * 3 + 1]) : 0.85;
+        let nz = rawNormals ? rawNormals[i * 3 + 2] : 0;
         const nNorm = Math.hypot(nx, ny, nz) || 1.0;
         normals[i * 3] = nx / nNorm;
         normals[i * 3 + 1] = ny / nNorm;

@@ -5,7 +5,8 @@ class GolfAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private ambientGain: GainNode | null = null;
-  private isMuted: boolean = false;
+  public isAmbientMuted: boolean = false;
+  public isSfxMuted: boolean = false;
 
   // Cached audio buffers for authentic recorded sounds
   private audioBuffers: Map<string, AudioBuffer> = new Map();
@@ -27,11 +28,11 @@ class GolfAudioEngine {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.65;
+      this.masterGain.gain.value = this.isSfxMuted ? 0 : 0.65;
       this.masterGain.connect(this.ctx.destination);
 
       this.ambientGain = this.ctx.createGain();
-      this.ambientGain.gain.value = 0.28; // Subtle relaxing background level
+      this.ambientGain.gain.value = this.isAmbientMuted ? 0 : 0.28; // Subtle relaxing background level
       this.ambientGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
@@ -42,7 +43,9 @@ class GolfAudioEngine {
   private handleFirstInteraction() {
     this.initContext();
     this.preloadAudioSamples();
-    this.startAmbientLoop();
+    if (!this.isAmbientMuted) {
+      this.startAmbientLoop();
+    }
   }
 
   /**
@@ -81,20 +84,20 @@ class GolfAudioEngine {
       }
     }
 
-    if (!this.ambientPlaying && !this.isMuted) {
+    if (!this.ambientPlaying && !this.isAmbientMuted) {
       this.startAmbientLoop();
     }
   }
 
   public startAmbientLoop() {
     this.initContext();
-    if (!this.ctx || !this.ambientGain || this.isMuted || this.ambientPlaying) return;
+    if (!this.ctx || !this.ambientGain || this.isAmbientMuted || this.ambientPlaying) return;
 
     const buf = this.audioBuffers.get('ambient');
     if (!buf) {
       // Retry shortly once buffer finishes decoding
       setTimeout(() => {
-        if (!this.ambientPlaying && !this.isMuted) this.startAmbientLoop();
+        if (!this.ambientPlaying && !this.isAmbientMuted) this.startAmbientLoop();
       }, 500);
       return;
     }
@@ -122,23 +125,49 @@ class GolfAudioEngine {
     this.ambientPlaying = false;
   }
 
-  public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
-    if (this.masterGain) {
-      this.masterGain.gain.value = this.isMuted ? 0 : 0.65;
-    }
+  /** Toggle ambient background forest sounds mute */
+  public toggleAmbientMute(): boolean {
+    this.initContext();
+    this.isAmbientMuted = !this.isAmbientMuted;
     if (this.ambientGain) {
-      this.ambientGain.gain.value = this.isMuted ? 0 : 0.28;
+      this.ambientGain.gain.value = this.isAmbientMuted ? 0 : 0.28;
     }
-    if (!this.isMuted && !this.ambientPlaying) {
+    if (!this.isAmbientMuted && !this.ambientPlaying) {
       this.startAmbientLoop();
+    } else if (this.isAmbientMuted && this.ambientPlaying) {
+      this.stopAmbientLoop();
     }
-    return this.isMuted;
+    return this.isAmbientMuted;
+  }
+
+  /** Toggle sound effects (hits, ball cup, deflections) mute */
+  public toggleSfxMute(): boolean {
+    this.initContext();
+    this.isSfxMuted = !this.isSfxMuted;
+    if (this.masterGain) {
+      this.masterGain.gain.value = this.isSfxMuted ? 0 : 0.65;
+    }
+    return this.isSfxMuted;
+  }
+
+  /** Legacy master mute toggle (mutes/unmutes both) */
+  public toggleMute(): boolean {
+    const nextState = !this.isSfxMuted;
+    this.isSfxMuted = nextState;
+    this.isAmbientMuted = nextState;
+    if (this.masterGain) this.masterGain.gain.value = nextState ? 0 : 0.65;
+    if (this.ambientGain) this.ambientGain.gain.value = nextState ? 0 : 0.28;
+    if (!nextState && !this.ambientPlaying) {
+      this.startAmbientLoop();
+    } else if (nextState && this.ambientPlaying) {
+      this.stopAmbientLoop();
+    }
+    return nextState;
   }
 
   private playBuffer(key: string, volume = 1.0, playbackRate = 1.0): boolean {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return false;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return false;
 
     const buf = this.audioBuffers.get(key);
     if (!buf) return false;
@@ -163,7 +192,7 @@ class GolfAudioEngine {
 
   public playSwingWhoosh(speedPercent = 1.0) {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
 
     const bufferSize = this.ctx.sampleRate * 0.4;
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
@@ -204,7 +233,7 @@ class GolfAudioEngine {
    */
   public playClubImpact(category: 'wood' | 'iron' | 'wedge' | 'putter', power = 1.0, isDriver = false) {
     this.initContext();
-    if (this.isMuted) return;
+    if (this.isSfxMuted) return;
 
     if (category === 'putter') {
       const vol = Math.max(0.4, Math.min(1.2, power * 1.4));
@@ -306,7 +335,7 @@ class GolfAudioEngine {
 
   public playBounce(surface: 'green' | 'fairway' | 'rough' | 'sand', intensity = 1.0) {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
     const now = this.ctx.currentTime;
     const vol = Math.min(1.0, Math.max(0.1, intensity));
 
@@ -357,7 +386,7 @@ class GolfAudioEngine {
    */
   public playCupDrop() {
     this.initContext();
-    if (this.isMuted) return;
+    if (this.isSfxMuted) return;
 
     if (this.playBuffer('hole', 1.2, 1.0)) {
       return;
@@ -394,7 +423,7 @@ class GolfAudioEngine {
    */
   public playTreeHit(speedPercent = 1.0) {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
     const now = this.ctx.currentTime;
     const vol = Math.min(1.3, Math.max(0.3, speedPercent * 1.1));
 
@@ -419,7 +448,7 @@ class GolfAudioEngine {
    */
   public playBranchDeflection() {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
     const now = this.ctx.currentTime;
 
     const bufferSize = Math.floor(this.ctx.sampleRate * 0.22);
@@ -449,7 +478,7 @@ class GolfAudioEngine {
 
   public playWaterSplash() {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
     const now = this.ctx.currentTime;
 
     const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.5, this.ctx.sampleRate);

@@ -80,18 +80,18 @@ export class Ball {
       segments: 32
     }, this.scene);
 
-    const ballTex = new Texture('/textures/golf_ball_texture_01.jpg', this.scene);
+    const ballTex = new Texture('/textures/golf_ball_texture_01.jpg', this.scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
     ballTex.anisotropicFilteringLevel = 16;
-    ballTex.uScale = 1;
-    ballTex.vScale = 1;
+    ballTex.uScale = 2.0;
+    ballTex.vScale = 2.0;
 
     const mat = new StandardMaterial('ballMat', this.scene);
     mat.diffuseTexture = ballTex;
     mat.diffuseColor = new Color3(1.0, 1.0, 1.0);
-    mat.specularColor = new Color3(0.85, 0.85, 0.88);
-    mat.specularPower = 112;
+    mat.specularColor = new Color3(0.92, 0.92, 0.95);
+    mat.specularPower = 96;
     mat.bumpTexture = ballTex;
-    mat.bumpTexture.level = 0.50;
+    mat.bumpTexture.level = 0.85;
     this.mesh.material = mat;
     this.mesh.receiveShadows = true;
 

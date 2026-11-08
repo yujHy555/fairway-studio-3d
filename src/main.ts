@@ -114,8 +114,8 @@ class FairwayStudioApp {
     this.ball.setTreeColliders(this.scenery.treeColliders);
     this.swingEngine = new SwingEngine(this.activeClub);
 
-    // 8. Clean Aim State Tracker (zero artificial blue target rings)
-    this.aimSystem = new AimSystem(this.scene, this.terrain);
+    // 8. Clean 3D Aim Chevron Indicator with real-time ground shadow
+    this.aimSystem = new AimSystem(this.scene, this.terrain, this.shadowGenerator);
 
     // 9. Interactive 3D Circular Brush Visualizer for Course Designer
     this.brushVisualizer = new DesignerBrushVisualizer(this.scene, this.terrain);
