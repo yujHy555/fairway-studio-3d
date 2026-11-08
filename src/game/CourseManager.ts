@@ -69,13 +69,13 @@ export class CourseManager {
       { x: 145, z: 334, width: 28 }
     ]);
 
-    // 3. Right Dogleg Corner Scalloped Bunker (Variant 2: asymmetric waist & entry tongue)
+    // 3. Right Dogleg Corner Scalloped Multi-Bay Bunker (Variant 2: asymmetric fingers & flared tongue)
     this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -0.80, 0.15, undefined, 2);
 
-    // 4. Left Outer Elbow Classic Curved Kidney Bunker (Variant 0: concave bay hugging the bend)
+    // 4. Left Outer Elbow Coastal Links Multi-Lobe Hazard (Variant 0: deep organic finger bays hugging the bend)
     this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -0.82, 0.18, undefined, 0);
 
-    // 4b. Middle Fairway Hazard Bunker at 250m (Variant 3: streamlined teardrop hazard guarding landing zone)
+    // 4b. Middle Fairway Organic Amoeba Hazard at 250m (Variant 3: undulating bays guarding landing zone)
     this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -0.80, 0.16, undefined, 3);
 
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
@@ -154,6 +154,75 @@ export class CourseManager {
       const rotY = (i * 2.39996) % (Math.PI * 2); // Golden-angle rotation so every tree silhouette is distinct
       const tree = this.scenery.createPineTree(t.x, ty, t.z, t.s, rotY);
       this.sceneryMeshes.push(tree);
+    }
+
+    // 11. Scatter Realistic 3D Bushes (bush_01.glb) along rough borders and behind the green
+    const bushPositions = [
+      // Left rough corridor along the dogleg fairway
+      { x: 74, z: 98, s: 1.1 },
+      { x: 71, z: 132, s: 1.3 },
+      { x: 67, z: 168, s: 1.0 },
+      { x: 62, z: 206, s: 1.4 },
+      { x: 66, z: 242, s: 1.2 },
+      { x: 78, z: 278, s: 1.3 },
+      { x: 92, z: 322, s: 1.1 },
+      { x: 108, z: 348, s: 1.2 },
+      // Right rough corridor flanking dogleg and water hazard
+      { x: 124, z: 104, s: 1.2 },
+      { x: 130, z: 138, s: 1.0 },
+      { x: 144, z: 172, s: 1.4 },
+      { x: 154, z: 212, s: 1.2 },
+      { x: 158, z: 252, s: 1.1 },
+      { x: 184, z: 268, s: 1.3 },
+      { x: 188, z: 304, s: 1.2 },
+      { x: 176, z: 342, s: 1.1 },
+      // Lush foliage backdrop nestled behind tournament green
+      { x: 126, z: 384, s: 1.3 },
+      { x: 136, z: 392, s: 1.4 },
+      { x: 146, z: 396, s: 1.5 },
+      { x: 156, z: 394, s: 1.3 },
+      { x: 166, z: 388, s: 1.4 },
+      { x: 138, z: 404, s: 1.2 },
+      { x: 152, z: 406, s: 1.3 },
+      // Framing Elevated Tee Box
+      { x: 76, z: 46, s: 1.2 },
+      { x: 116, z: 50, s: 1.1 }
+    ];
+
+    for (let i = 0; i < bushPositions.length; i++) {
+      const b = bushPositions[i];
+      const by = this.terrain.getElevation(b.x, b.z);
+      const rotY = (i * 2.618) % (Math.PI * 2);
+      const bush = this.scenery.createBush(b.x, by, b.z, b.s, rotY);
+      this.sceneryMeshes.push(bush);
+    }
+
+    // 12. Scatter Realistic 3D Granite Rocks (Rock_01.glb) along rough corridors, water edges, and behind green
+    const rockPositions = [
+      // Left rough natural glacial outcrops
+      { x: 68, z: 122, s: 1.2 },
+      { x: 63, z: 192, s: 1.4 },
+      { x: 70, z: 262, s: 1.1 },
+      { x: 86, z: 312, s: 1.3 },
+      // Flanking water hazard shoreline
+      { x: 186, z: 262, s: 1.4 },
+      { x: 192, z: 292, s: 1.5 },
+      { x: 185, z: 318, s: 1.2 },
+      // Rugged granite boulders framing behind the green
+      { x: 130, z: 394, s: 1.3 },
+      { x: 144, z: 402, s: 1.6 },
+      { x: 162, z: 396, s: 1.2 },
+      // Elevated Tee Box hillside slopes
+      { x: 74, z: 32, s: 1.3 },
+      { x: 118, z: 36, s: 1.4 }
+    ];
+
+    for (let i = 0; i < rockPositions.length; i++) {
+      const r = rockPositions[i];
+      const ry = this.terrain.getElevation(r.x, r.z);
+      const rotY = (i * 1.942) % (Math.PI * 2);
+      const rock = this.scenery.createRock(r.x, ry, r.z, r.s, rotY);
+      this.sceneryMeshes.push(rock);
     }
 
     // Refresh hole markers

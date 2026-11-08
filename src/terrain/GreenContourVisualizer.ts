@@ -248,8 +248,9 @@ export class GreenContourVisualizer {
       for (let x = minX + 0.75; x <= maxX; x += dotSpacing) {
         if (isInteriorGreen(x, z)) {
           const normal = this.terrain.getNormal(x, z);
-          const slopeX = -normal.x;
-          const slopeZ = -normal.z;
+          // Normal.x and normal.z point downhill (-dh/dx, -dh/dz), exactly matching ball break
+          const slopeX = normal.x;
+          const slopeZ = normal.z;
           const slopeMag = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
 
           if (slopeMag > 0.005) {

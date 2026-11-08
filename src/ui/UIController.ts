@@ -26,6 +26,7 @@ export interface UIEventCallbacks {
   onAimAdjust: (deltaDeg: number) => void;
   onTargetDistanceAdjust?: (deltaMeters: number) => void;
   onCameraModeToggle: () => void;
+  onShotShapeChange?: (shape: 'straight' | 'draw' | 'fade') => void;
   onFocusBall?: () => void;
   onResetShot: () => void;
 }
@@ -238,6 +239,16 @@ export class UIController {
             </div>
           </div>
           <button id="btn-next-club" class="btn btn-icon">▶</button>
+        </div>
+
+        <!-- PGA Tour Shot Shaper Controls -->
+        <div class="hud-shot-shaper">
+          <span class="shot-shaper-title">SHAPE:</span>
+          <div class="shot-shaper-buttons">
+            <button id="btn-shape-draw" class="btn btn-shaper" title="Draw shot: curves right-to-left [Q]">⤹ Draw [Q]</button>
+            <button id="btn-shape-straight" class="btn btn-shaper active" title="Straight shot [W]">⇡ Straight [W]</button>
+            <button id="btn-shape-fade" class="btn btn-shaper" title="Fade shot: curves left-to-right [E]">⤵ Fade [E]</button>
+          </div>
         </div>
 
         <!-- 3-Click AAA Swing Meter -->
@@ -795,6 +806,17 @@ export class UIController {
       this.callbacks.onResetShot();
     });
 
+    // Shot Shaper Button Handlers
+    document.getElementById('btn-shape-draw')?.addEventListener('click', () => {
+      this.setShotShape('draw');
+    });
+    document.getElementById('btn-shape-straight')?.addEventListener('click', () => {
+      this.setShotShape('straight');
+    });
+    document.getElementById('btn-shape-fade')?.addEventListener('click', () => {
+      this.setShotShape('fade');
+    });
+
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
       if (this.currentMode !== 'play') return;
@@ -806,6 +828,12 @@ export class UIController {
         this.callbacks.onAimAdjust(-1.5);
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         this.callbacks.onAimAdjust(1.5);
+      } else if (e.code === 'KeyQ') {
+        this.setShotShape('draw');
+      } else if (e.code === 'KeyW') {
+        this.setShotShape('straight');
+      } else if (e.code === 'KeyE') {
+        this.setShotShape('fade');
       } else if (e.code === 'KeyB') {
         this.callbacks.onFocusBall?.();
       } else if (e.code === 'KeyC') {
@@ -814,5 +842,18 @@ export class UIController {
         this.callbacks.onResetShot();
       }
     });
+  }
+
+  public currentShotShape: 'straight' | 'draw' | 'fade' = 'straight';
+
+  public setShotShape(shape: 'straight' | 'draw' | 'fade') {
+    this.currentShotShape = shape;
+    const btnDraw = document.getElementById('btn-shape-draw');
+    const btnStraight = document.getElementById('btn-shape-straight');
+    const btnFade = document.getElementById('btn-shape-fade');
+    btnDraw?.classList.toggle('active', shape === 'draw');
+    btnStraight?.classList.toggle('active', shape === 'straight');
+    btnFade?.classList.toggle('active', shape === 'fade');
+    this.callbacks.onShotShapeChange?.(shape);
   }
 }

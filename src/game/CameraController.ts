@@ -45,7 +45,7 @@ export class CameraController {
     }
 
     // Near/Far planes tuned for both millimeter close-ups of the golf ball and course vistas
-    this.camera.minZ = 0.10;
+    this.camera.minZ = 0.05;
     this.camera.maxZ = 2400;
 
     // Remove default keyboard rotation on ArcRotateCamera so we can provide smooth WASD ground-gliding
@@ -193,15 +193,17 @@ export class CameraController {
     if (this.isUserDragging) return;
 
     // Frame the landing & bounce clearly at a close broadcast angle (~5.4m) when the ball hits the turf
-    const desiredRadius = isNearGroundOrBouncing ? 5.4 : 9.5;
-    const desiredBeta = isNearGroundOrBouncing ? Math.PI / 2.38 : Math.PI / 2.65;
+    const desiredRadius = isNearGroundOrBouncing ? 5.4 : 9.8;
+    const desiredBeta = isNearGroundOrBouncing ? Math.PI / 2.42 : Math.PI / 2.85;
     this.camera.radius += (desiredRadius - this.camera.radius) * 0.12;
     this.camera.beta += (desiredBeta - this.camera.beta) * 0.10;
 
     const horizontalSpeed = Math.sqrt(ballVelocity.x * ballVelocity.x + ballVelocity.z * ballVelocity.z);
     if (horizontalSpeed > 1.2) {
       const headingRad = Math.atan2(ballVelocity.x, ballVelocity.z);
-      const targetAlpha = -headingRad - Math.PI / 2;
+      // Natural PGA Tour broadcast camera offset: slightly offset laterally (+0.12 rad) so the flight tracer
+      // stays clearly in view without ever passing directly through the camera center or near-clipping plane!
+      const targetAlpha = -headingRad - Math.PI / 2 + 0.12;
 
       let alphaDiff = targetAlpha - this.camera.alpha;
       while (alphaDiff < -Math.PI) alphaDiff += Math.PI * 2;
@@ -302,44 +304,33 @@ export class CameraController {
 
     const currentCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
 
-    if (currentCamY < requiredCamY) {
-      // If user is actively panning with RMB, lift target.y directly
-      if (this.isRmbDown) {
-        this.camera.target.y += (requiredCamY - currentCamY);
-        return;
-      }
-      const dyNeeded = requiredCamY - this.camera.target.y;
-      const minBeta = 0.15; // Keep at least ~8.5 deg angle from vertical
-      const maxRiseFromBeta = r * Math.cos(minBeta);
+    // If user is actively dragging with RMB to pan, allow vertical translation
+    if (this.isRmbDown && currentCamY < requiredCamY) {
+      this.camera.target.y += (requiredCamY - currentCamY);
+      return;
+    }
 
-      if (dyNeeded <= maxRiseFromBeta) {
-        const cosReq = Math.max(-0.99, Math.min(0.99, dyNeeded / r));
-        const safeBeta = Math.max(minBeta, Math.acos(cosReq));
-        // Gracefully elevate target.y to preserve user's upward viewing angle instead of harsh downward clamping
-        if (this.camera.beta > safeBeta) {
-          const deltaY = requiredCamY - currentCamY;
-          this.camera.target.y += deltaY * 0.75;
-          const newCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
-          if (newCamY < requiredCamY) {
-            this.camera.beta = Math.max(minBeta, Math.min(Math.PI / 1.76, safeBeta + 0.12));
-          }
-        }
-        this.camera.upperBetaLimit = Math.max(minBeta, Math.min(Math.PI / 1.76, safeBeta + 0.18));
-      } else {
-        this.camera.beta = minBeta;
-        this.camera.upperBetaLimit = minBeta;
-        this.camera.target.y = requiredCamY - maxRiseFromBeta;
+    const dyNeeded = requiredCamY - this.camera.target.y;
+    const minBeta = 0.08; // Keep at least ~4.5 deg from vertical
+    const maxAllowedBeta = Math.PI / 1.76;
+
+    if (dyNeeded < r) {
+      // Analytical maximum safe beta before camera would sink below terrain
+      const cosReq = Math.max(-0.98, Math.min(0.98, dyNeeded / r));
+      const safeBeta = Math.max(minBeta, Math.min(maxAllowedBeta, Math.acos(cosReq) - 0.02));
+
+      // Strictly clamp beta so camera smoothly arrests at terrain level without ever jumping/snapping target.y!
+      this.camera.upperBetaLimit = safeBeta;
+      if (this.camera.beta > safeBeta) {
+        this.camera.beta = safeBeta;
       }
     } else {
-      // Smoothly relax upperBetaLimit when high above ground
-      const dySafe = requiredCamY - this.camera.target.y;
-      let maxAllowedBeta = Math.PI / 1.76;
-      if (dySafe / r >= -0.98 && dySafe / r <= 0.98) {
-        maxAllowedBeta = Math.max(0.25, Math.min(Math.PI / 1.76, Math.acos(dySafe / r) + 0.15));
-      }
-      this.camera.upperBetaLimit = this.camera.upperBetaLimit * 0.85 + maxAllowedBeta * 0.15;
-      if (this.camera.beta > this.camera.upperBetaLimit) {
-        this.camera.beta = this.camera.upperBetaLimit;
+      // Camera is close to a steep bluff or hill behind target: clamp beta to near-vertical
+      // and gently push radius in if needed rather than snapping target.y
+      this.camera.upperBetaLimit = minBeta;
+      this.camera.beta = Math.min(this.camera.beta, minBeta);
+      if (this.mode === 'designer' || this.mode === 'scout') {
+        this.camera.target.y = Math.max(this.camera.target.y, requiredCamY - r * 0.95);
       }
     }
   }

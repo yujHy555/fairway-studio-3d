@@ -53,6 +53,17 @@ export class SceneryFactory {
   private heroLeavesVertexData: VertexData | null = null;
   private heroTrunkVertexData: VertexData | null = null;
   private activeHeroTrees: { branches: Mesh; leaves: Mesh; trunk: Mesh }[] = [];
+  // Master geometry parsed directly from /models/bush_01.glb (2 primitives: twigs, leaves)
+  private bushBranchesVertexData: VertexData | null = null;
+  private bushLeavesVertexData: VertexData | null = null;
+  private matBushBranches: StandardMaterial;
+  private matBushLeaves: StandardMaterial;
+  private activeBushes: { branches: Mesh; leaves: Mesh }[] = [];
+
+  // Master geometry parsed directly from /models/Rock_01.glb (1 primitive: rock)
+  private rockGlbVertexData: VertexData | null = null;
+  private matGlbRock: StandardMaterial;
+  private activeRocks: Mesh[] = [];
 
   private activeFlags: Mesh[] = [];
   private windTime = 0;
@@ -95,6 +106,29 @@ export class SceneryFactory {
     this.matHeroTrunk.emissiveColor = new Color3(0.12, 0.11, 0.09);
     this.matHeroTrunk.specularColor = new Color3(0.05, 0.05, 0.05);
     this.matHeroTrunk.backFaceCulling = false;
+
+    // 1c. Bush Materials (bush_01.glb)
+    this.matBushBranches = new StandardMaterial('matBushBranches', scene);
+    this.matBushBranches.diffuseColor = new Color3(0.95, 0.92, 0.88);
+    this.matBushBranches.emissiveColor = new Color3(0.12, 0.11, 0.09);
+    this.matBushBranches.backFaceCulling = false;
+
+    this.matBushLeaves = new StandardMaterial('matBushLeaves', scene);
+    this.matBushLeaves.diffuseColor = new Color3(1.05, 1.10, 1.0);
+    this.matBushLeaves.emissiveColor = new Color3(0.20, 0.26, 0.16);
+    this.matBushLeaves.specularColor = new Color3(0.05, 0.06, 0.04);
+    this.matBushLeaves.backFaceCulling = false;
+    this.matBushLeaves.twoSidedLighting = false;
+    this.matBushLeaves.transparencyMode = Material.MATERIAL_ALPHATEST;
+    this.matBushLeaves.alphaCutOff = 0.38;
+
+    // 1d. High-Realism Rock Material (Rock_01.glb)
+    this.matGlbRock = new StandardMaterial('matGlbRock', scene);
+    this.matGlbRock.diffuseColor = new Color3(0.96, 0.96, 0.96);
+    this.matGlbRock.emissiveColor = new Color3(0.08, 0.08, 0.08);
+    this.matGlbRock.specularColor = new Color3(0.12, 0.12, 0.12);
+    this.matGlbRock.specularPower = 36;
+    this.matGlbRock.backFaceCulling = false;
 
     // 2. Seamless Granite Boulder Material
     const rockTex = RealisticTextures.createSeamlessRockTextures(scene);
@@ -238,7 +272,9 @@ export class SceneryFactory {
   public async loadTreeModels(): Promise<void> {
     await Promise.all([
       this.loadMediumPineTreeGlb(),
-      this.loadHeroTreeGlb()
+      this.loadHeroTreeGlb(),
+      this.loadBushGlb(),
+      this.loadRockGlb()
     ]);
   }
 
@@ -440,6 +476,167 @@ export class SceneryFactory {
     }
   }
 
+  private async loadBushGlb(): Promise<void> {
+    try {
+      const response = await fetch('/models/bush_01.glb');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading bush_01.glb`);
+      }
+      const arrayBuf = await response.arrayBuffer();
+      const view = new DataView(arrayBuf);
+      if (view.getUint32(0, true) !== 0x46546C67) {
+        throw new Error('Invalid GLB header in bush_01.glb');
+      }
+
+      const jsonChunkLen = view.getUint32(12, true);
+      const gltf = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(arrayBuf, 20, jsonChunkLen)));
+      const binChunkStart = 20 + jsonChunkLen + 8;
+
+      const buildPrimitiveVertexData = (primIdx: number): VertexData => {
+        const prim = gltf.meshes[0].primitives[primIdx];
+        const posAcc = gltf.accessors[prim.attributes.POSITION];
+        const normAcc = gltf.accessors[prim.attributes.NORMAL];
+        const uvAcc = gltf.accessors[prim.attributes.TEXCOORD_0];
+        const idxAcc = gltf.accessors[prim.indices];
+
+        const posBV = gltf.bufferViews[posAcc.bufferView];
+        const normBV = gltf.bufferViews[normAcc.bufferView];
+        const uvBV = gltf.bufferViews[uvAcc.bufferView];
+        const idxBV = gltf.bufferViews[idxAcc.bufferView];
+
+        const positions = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAcc.count * 3);
+        const normals = new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAcc.count * 3);
+        const uvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAcc.count * 2);
+
+        let indices: Uint32Array | Uint16Array;
+        if (idxAcc.componentType === 5125) {
+          indices = new Uint32Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+        } else {
+          indices = new Uint16Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+        }
+
+        const vd = new VertexData();
+        vd.positions = positions;
+        vd.normals = normals;
+        vd.uvs = uvs;
+        vd.indices = indices;
+        return vd;
+      };
+
+      this.bushBranchesVertexData = buildPrimitiveVertexData(0);
+      this.bushLeavesVertexData = buildPrimitiveVertexData(1);
+
+      for (const b of this.activeBushes) {
+        if (!b.branches.isDisposed()) this.bushBranchesVertexData.applyToMesh(b.branches, false);
+        if (!b.leaves.isDisposed()) this.bushLeavesVertexData.applyToMesh(b.leaves, false);
+      }
+
+      const createOpaqueTextureFromImageIdx = (imgIdx: number, name: string): Texture | null => {
+        const imgDef = gltf.images?.[imgIdx];
+        if (!imgDef || imgDef.bufferView === undefined) return null;
+        const bv = gltf.bufferViews[imgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const tex = new Texture(url, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+        tex.name = name;
+        tex.anisotropicFilteringLevel = 16;
+        return tex;
+      };
+
+      const branchTex = createOpaqueTextureFromImageIdx(1, 'bushBranchDiff');
+      if (branchTex) this.matBushBranches.diffuseTexture = branchTex;
+
+      const branchNor = createOpaqueTextureFromImageIdx(0, 'bushBranchNor');
+      if (branchNor) this.matBushBranches.bumpTexture = branchNor;
+
+      const leafImgDef = gltf.images?.[3];
+      if (leafImgDef && leafImgDef.bufferView !== undefined) {
+        const bv = gltf.bufferViews[leafImgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: leafImgDef.mimeType || 'image/png' });
+        const crispLeafTex = await this.createCrispFoliageTextureFromBlob(blob, 'bushLeavesCrispDiff', 1.15);
+        this.matBushLeaves.diffuseTexture = crispLeafTex;
+        this.matBushLeaves.opacityTexture = crispLeafTex;
+        this.matBushLeaves.useAlphaFromDiffuseTexture = true;
+      }
+    } catch (err) {
+      console.error('Failed to load bush_01.glb:', err);
+    }
+  }
+
+  private async loadRockGlb(): Promise<void> {
+    try {
+      const response = await fetch('/models/Rock_01.glb');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading Rock_01.glb`);
+      }
+      const arrayBuf = await response.arrayBuffer();
+      const view = new DataView(arrayBuf);
+      if (view.getUint32(0, true) !== 0x46546C67) {
+        throw new Error('Invalid GLB header in Rock_01.glb');
+      }
+
+      const jsonChunkLen = view.getUint32(12, true);
+      const gltf = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(arrayBuf, 20, jsonChunkLen)));
+      const binChunkStart = 20 + jsonChunkLen + 8;
+
+      const prim = gltf.meshes[0].primitives[0];
+      const posAcc = gltf.accessors[prim.attributes.POSITION];
+      const normAcc = gltf.accessors[prim.attributes.NORMAL];
+      const uvAcc = gltf.accessors[prim.attributes.TEXCOORD_0];
+      const idxAcc = gltf.accessors[prim.indices];
+
+      const posBV = gltf.bufferViews[posAcc.bufferView];
+      const normBV = gltf.bufferViews[normAcc.bufferView];
+      const uvBV = gltf.bufferViews[uvAcc.bufferView];
+      const idxBV = gltf.bufferViews[idxAcc.bufferView];
+
+      const positions = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAcc.count * 3);
+      const normals = new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAcc.count * 3);
+      const uvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAcc.count * 2);
+
+      let indices: Uint32Array | Uint16Array;
+      if (idxAcc.componentType === 5125) {
+        indices = new Uint32Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      } else {
+        indices = new Uint16Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      }
+
+      const vd = new VertexData();
+      vd.positions = positions;
+      vd.normals = normals;
+      vd.uvs = uvs;
+      vd.indices = indices;
+      this.rockGlbVertexData = vd;
+
+      for (const r of this.activeRocks) {
+        if (!r.isDisposed()) this.rockGlbVertexData.applyToMesh(r, false);
+      }
+
+      const createOpaqueTextureFromImageIdx = (imgIdx: number, name: string): Texture | null => {
+        const imgDef = gltf.images?.[imgIdx];
+        if (!imgDef || imgDef.bufferView === undefined) return null;
+        const bv = gltf.bufferViews[imgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const tex = new Texture(url, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+        tex.name = name;
+        tex.anisotropicFilteringLevel = 16;
+        return tex;
+      };
+
+      const rockDiffTex = createOpaqueTextureFromImageIdx(2, 'rockGlbDiff');
+      if (rockDiffTex) this.matGlbRock.diffuseTexture = rockDiffTex;
+
+      const rockNorTex = createOpaqueTextureFromImageIdx(0, 'rockGlbNor');
+      if (rockNorTex) this.matGlbRock.bumpTexture = rockNorTex;
+    } catch (err) {
+      console.error('Failed to load Rock_01.glb:', err);
+    }
+  }
+
   /**
    * Creates an instance of the realistic 3D Pine Tree (`pine_tree_medium_01_01.glb`)
    */
@@ -523,6 +720,87 @@ export class SceneryFactory {
       canopyBottomY: y + 2.8 * scale,
       canopyTopY: y + 14.5 * scale,
       isHero: true
+    });
+
+    return root;
+  }
+
+  /**
+   * Creates an instance of the realistic 3D Bush (`bush_01.glb`)
+   * Scattered along rough borders, treelines, and green backdrops for natural foliage depth.
+   */
+  public createBush(x: number, y: number, z: number, scale = 1.0, rotationY?: number): Mesh {
+    const idx = this.activeBushes.length;
+    const root = new Mesh(`bush_root_${idx}`, this.scene);
+    root.position.set(x, y - 0.02, z);
+    const s = scale * 1.35;
+    root.scaling.set(s, s, s);
+    root.rotation.y = rotationY !== undefined ? rotationY : ((x * 1.73 + z * 2.41) % (Math.PI * 2));
+
+    const branches = new Mesh(`bush_branches_${idx}`, this.scene);
+    branches.material = this.matBushBranches;
+    branches.isPickable = false;
+    branches.parent = root;
+
+    const leaves = new Mesh(`bush_leaves_${idx}`, this.scene);
+    leaves.material = this.matBushLeaves;
+    leaves.receiveShadows = false;
+    leaves.isPickable = false;
+    leaves.parent = root;
+
+    if (this.bushBranchesVertexData) this.bushBranchesVertexData.applyToMesh(branches, false);
+    if (this.bushLeavesVertexData) this.bushLeavesVertexData.applyToMesh(leaves, false);
+
+    this.activeBushes.push({ branches, leaves });
+
+    this.treeColliders.push({
+      x,
+      y,
+      z,
+      trunkRadius: 0,
+      trunkHeight: 0,
+      canopyRadius: 0.75 * s,
+      canopyBottomY: y,
+      canopyTopY: y + 1.15 * s,
+      isHero: true
+    });
+
+    return root;
+  }
+
+  /**
+   * Creates an instance of the realistic 3D Granite Boulder (`Rock_01.glb`)
+   * Natural glacial rock formations scattered along rough corridors and water hazard borders.
+   */
+  public createRock(x: number, y: number, z: number, scale = 1.0, rotationY?: number): Mesh {
+    const idx = this.activeRocks.length;
+    const root = new Mesh(`rock_glb_root_${idx}`, this.scene);
+    root.position.set(x, y + 0.05, z);
+    const s = scale * 1.35;
+    root.scaling.set(s, s, s);
+    root.rotation.y = rotationY !== undefined ? rotationY : ((x * 2.11 + z * 1.49) % (Math.PI * 2));
+
+    const rockMesh = new Mesh(`rock_glb_mesh_${idx}`, this.scene);
+    rockMesh.material = this.matGlbRock;
+    rockMesh.receiveShadows = true;
+    rockMesh.isPickable = false;
+    rockMesh.parent = root;
+    rockMesh.rotation.x = -Math.PI / 2;
+
+    if (this.rockGlbVertexData) this.rockGlbVertexData.applyToMesh(rockMesh, false);
+
+    this.activeRocks.push(rockMesh);
+
+    this.treeColliders.push({
+      x,
+      y,
+      z,
+      trunkRadius: 1.15 * s,
+      trunkHeight: 1.55 * s,
+      canopyRadius: 0,
+      canopyBottomY: 0,
+      canopyTopY: 0,
+      isHero: false
     });
 
     return root;

@@ -32,6 +32,7 @@ import { CourseManager } from './game/CourseManager';
 import { AimSystem } from './game/AimSystem';
 import { UIController } from './ui/UIController';
 import { DesignerBrushVisualizer } from './terrain/DesignerBrushVisualizer';
+import { soundFx } from './core/Audio';
 
 class FairwayStudioApp {
   private canvas: HTMLCanvasElement;
@@ -440,8 +441,14 @@ class FairwayStudioApp {
           this.aimSystem.showAimArrow(this.ball.position);
           this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
         }
-        this.cameraCtrl.setAimHeading(this.ball.position, this.currentAimAzimuth);
+        soundFx.playAimTick();
+        // Adjusting arrow heading does NOT rotate or snap camera out of view
         this.updateHUDDisplay();
+      },
+      onShotShapeChange: (shape) => {
+        this.swingEngine.setShotShape(shape);
+        soundFx.playAimTick();
+        this.ui.showToast(`Shot Shape: ${shape.toUpperCase()}`, 'info', 1000);
       },
       onTargetDistanceAdjust: (deltaMeters) => {
         if (this.activeMode !== 'play' || this.ball.state === BallState.IN_FLIGHT || this.ball.state === BallState.ROLLING) return;

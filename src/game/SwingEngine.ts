@@ -1,6 +1,8 @@
 import { ClubSpec, ShotResult } from '../core/Types';
 import { SURFACE_PROPERTIES, SurfaceType } from '../core/Constants';
 
+export type ShotShape = 'straight' | 'draw' | 'fade';
+
 export enum SwingPhase {
   IDLE = 'IDLE',
   BACKSWING = 'BACKSWING',   // Meter rising to set power
@@ -24,6 +26,9 @@ export class SwingEngine {
   public windSpeedMps: number = 3.5;
   public windHeadingDeg: number = 45;
 
+  // Shot Shaper: Straight, Draw (pushes right, hooks left), Fade (pushes left, slices right)
+  public shotShape: ShotShape = 'straight';
+
   public onUpdate?: (meterValue: number, phase: SwingPhase, lockedPower?: number | null) => void;
   public onShotExecute?: (shot: ShotResult) => void;
   public onSwingCancelled?: (reason: string) => void;
@@ -38,6 +43,10 @@ export class SwingEngine {
 
   public setLie(lie: SurfaceType) {
     this.currentLie = lie;
+  }
+
+  public setShotShape(shape: ShotShape) {
+    this.shotShape = shape;
   }
 
   /**
@@ -141,10 +150,26 @@ export class SwingEngine {
       launchAngle = 2.0;
     }
 
+    // Shot Shaper aerodynamic trajectory adjustments (Draw curves left, Fade curves right)
+    let shapeSidespin = 0;
+    let shapeAzimuthOffset = 0;
+    if (this.activeClub.category !== 'putter') {
+      if (this.shotShape === 'draw') {
+        // Draw: pushes out right (+2.2 deg), curves gracefully back left (-750 RPM sidespin)
+        shapeSidespin = -750 * power;
+        shapeAzimuthOffset = 2.2;
+      } else if (this.shotShape === 'fade') {
+        // Fade: pushes out left (-2.2 deg), curves gently back right (+750 RPM sidespin)
+        shapeSidespin = 750 * power;
+        shapeAzimuthOffset = -2.2;
+      }
+    }
+
     const backspin = this.activeClub.baseBackspinRPM * power * lieProps.spinMultiplier;
-    const sidespin = this.activeClub.maxSidespinRPM * this.accuracyOffset;
+    const accuracySidespin = this.activeClub.maxSidespinRPM * this.accuracyOffset;
+    const sidespin = shapeSidespin + accuracySidespin;
     const azimuthAdjustment = this.accuracyOffset * 3.5;
-    const finalAzimuth = this.aimAzimuthDeg + azimuthAdjustment;
+    const finalAzimuth = this.aimAzimuthDeg + shapeAzimuthOffset + azimuthAdjustment;
 
     const shot: ShotResult = {
       club: this.activeClub,

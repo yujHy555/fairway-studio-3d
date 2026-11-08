@@ -760,14 +760,26 @@ export class Ball {
       }
     }
 
-    if (livePath.length >= 2) {
+    // Ensure the tracer tube never clips into the active camera frustum near plane
+    const camPos = this.scene.activeCamera ? this.scene.activeCamera.globalPosition : null;
+    const finalPath: Vector3[] = [];
+    for (let i = 0; i < livePath.length; i++) {
+      const p = livePath[i];
+      // Keep the live tip at the ball, but exclude any interior point within 1.5m of the camera lens
+      if (camPos && i < livePath.length - 1 && Vector3.Distance(p, camPos) < 1.5) {
+        continue;
+      }
+      finalPath.push(p);
+    }
+
+    if (finalPath.length >= 2) {
       if (this.tracerMesh) {
         this.tracerMesh.dispose();
       }
       this.tracerMesh = MeshBuilder.CreateTube('ballToptracer', {
-        path: livePath,
-        radius: 0.058,
-        tessellation: 14,
+        path: finalPath,
+        radius: 0.048,
+        tessellation: 12,
         cap: Mesh.CAP_ALL,
         updatable: false
       }, this.scene);
