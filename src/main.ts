@@ -194,22 +194,23 @@ class FairwayStudioApp {
     this.sunLight = sun;
 
     // 4. Real Lighting-Generated AAA Soft-Edged Cascaded Shadows
-    // Covers millimeter-scale close-ups (golf ball & tee markers) and 400m distant pine trees simultaneously!
+    // Covers millimeter-scale close-ups (golf ball & tee markers) and 500m distant scenery with zero flickering!
     try {
       if (CascadedShadowGenerator.IsSupported) {
         const csm = new CascadedShadowGenerator(2048, sun);
         csm.numCascades = 4;
-        csm.lambda = 0.88; // Concentrates Cascade 0 tightly around the camera/ball for millimeter precision
-        csm.shadowMaxZ = 420;
-        csm.stabilizeCascades = true;
+        csm.lambda = 0.72; // Balanced cascade distribution for crisp close-ups and solid distant shadows
+        csm.shadowMaxZ = 520; // Reaches from tee box past the green backdrop
+        csm.stabilizeCascades = true; // Locks cascade bounds to texel grid, preventing camera-orbit shimmering
+        csm.depthClamp = true; // Prevents near/far plane depth clipping flicker
         csm.autoCalcDepthBounds = false;
-        csm.cascadeBlendPercentage = 0.10;
+        csm.cascadeBlendPercentage = 0.25; // Smooth 25% overlap between cascades eliminates pop seams
         csm.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
-        csm.penumbraDarkness = 0.20;
-        csm.darkness = 0.20;
-        csm.bias = 0.00004;
-        csm.normalBias = 0.0; // Zero normal offset so the 4.27cm golf ball & tee markers cast crisp real shadows!
-        csm.transparencyShadow = true; // Cast real alpha-cutout shadows from pine_tree_medium_01_01.glb foliage!
+        csm.penumbraDarkness = 0.24;
+        csm.darkness = 0.22;
+        csm.bias = 0.00028; // Completely eliminates shadow acne flickering
+        csm.normalBias = 0.0006; // Smooth normal projection offset preventing self-shadow artifacts
+        csm.transparencyShadow = true; // Casts real alpha-cutout shadows from foliage
         this.shadowGenerator = csm;
       } else {
         sun.autoCalcShadowZBounds = false;
@@ -276,6 +277,9 @@ class FairwayStudioApp {
   }
 
   private placeBallAtActiveTee() {
+    // Dynamic wind factor randomized on each hole start or reset
+    this.swingEngine.randomizeWind();
+
     const hole = this.courseManager.currentHole;
     const tee = hole.teePosition;
     const groundY = this.terrain.getElevation(tee.x, tee.z);

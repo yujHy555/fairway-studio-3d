@@ -44,18 +44,18 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.GREEN]: {
     name: 'Green',
     color: [0.28, 0.78, 0.38],     // Silky manicured putting green
-    restitution: 0.35,             // Controlled receptive green bounce
-    friction: 0.18,
-    rollingResistance: 0.08,       // Fast tournament Stimp 11.5 for precision putts
+    restitution: 0.32,             // Controlled receptive green bounce
+    friction: 0.22,
+    rollingResistance: 0.15,       // Realistic tournament Stimp 10.5 for controlled, readable putts
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
   [SurfaceType.BUNKER]: {
     name: 'Bunker',
     color: [0.91, 0.82, 0.59],     // Warm golden sand
-    restitution: 0.02,             // Minimal bounce; sand deadens impact immediately
-    friction: 0.98,                // Heavy sand grab
-    rollingResistance: 1.80,       // Instant plug / decisive stop
+    restitution: 0.12,             // Receptive sand cushion bounce
+    friction: 0.94,                // High sand friction
+    rollingResistance: 0.85,       // Controlled sand roll
     liePenalty: 0.55,
     spinMultiplier: 0.30
   },

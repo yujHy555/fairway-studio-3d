@@ -288,6 +288,7 @@ export class UIController {
               <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
               <button id="btn-focus-ball" class="btn btn-sm">⛳ Ball [B]</button>
               <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
+              <button id="btn-fullscreen" class="btn btn-sm">⛶ Fullscreen [F]</button>
               <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
             </div>
           </div>
@@ -802,6 +803,14 @@ export class UIController {
       this.callbacks.onFocusBall?.();
     });
 
+    document.getElementById('btn-fullscreen')?.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    });
+
     document.getElementById('btn-reset-shot')!.addEventListener('click', () => {
       this.callbacks.onResetShot();
     });
@@ -819,6 +828,14 @@ export class UIController {
 
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyF') {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+        return;
+      }
       if (this.currentMode !== 'play') return;
       if (e.code === 'Space') {
         e.preventDefault();

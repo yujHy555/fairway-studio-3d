@@ -50,6 +50,15 @@ export class SwingEngine {
   }
 
   /**
+   * Generates a new dynamic wind condition every time the hole starts or resets
+   */
+  public randomizeWind(): { speed: number; heading: number } {
+    this.windSpeedMps = parseFloat((1.5 + Math.random() * 6.0).toFixed(1)); // 1.5 to 7.5 m/s (~3.4 to ~16.8 mph)
+    this.windHeadingDeg = Math.floor(Math.random() * 360);
+    return { speed: this.windSpeedMps, heading: this.windHeadingDeg };
+  }
+
+  /**
    * PGA Tour 3-Click Control:
    * Click 1: Begin backswing
    * Click 2: Lock Power (MUST click to set power)

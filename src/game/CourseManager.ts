@@ -70,13 +70,13 @@ export class CourseManager {
     ]);
 
     // 3. Right Dogleg Corner Scalloped Multi-Bay Bunker (Variant 2: asymmetric fingers & flared tongue)
-    this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -0.80, 0.15, undefined, 2);
+    this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -0.80, 0.15, undefined, 4);
 
     // 4. Left Outer Elbow Coastal Links Multi-Lobe Hazard (Variant 0: deep organic finger bays hugging the bend)
     this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -0.82, 0.18, undefined, 0);
 
     // 4b. Middle Fairway Organic Amoeba Hazard at 250m (Variant 3: undulating bays guarding landing zone)
-    this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -0.80, 0.16, undefined, 3);
+    this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -0.80, 0.16, undefined, 4);
 
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
     const pondRimElevation = this.terrain.getBaseElevation(168, 282);
@@ -156,37 +156,69 @@ export class CourseManager {
       this.sceneryMeshes.push(tree);
     }
 
-    // 11. Scatter Realistic 3D Bushes (bush_01.glb) along rough borders and behind the green
+        // 11. Scatter Realistic 3D Bushes (bush_01.glb) along rough borders and behind the green
     const bushPositions = [
-      // Left rough corridor along the dogleg fairway
+      // Left rough corridor along the dogleg fairway & cliff base
       { x: 74, z: 98, s: 1.1 },
+      { x: 58, z: 115, s: 1.2 },
       { x: 71, z: 132, s: 1.3 },
+      { x: 54, z: 152, s: 1.4 },
       { x: 67, z: 168, s: 1.0 },
+      { x: 52, z: 188, s: 1.3 },
       { x: 62, z: 206, s: 1.4 },
+      { x: 56, z: 224, s: 1.1 },
       { x: 66, z: 242, s: 1.2 },
+      { x: 60, z: 260, s: 1.3 },
       { x: 78, z: 278, s: 1.3 },
+      { x: 70, z: 298, s: 1.2 },
       { x: 92, z: 322, s: 1.1 },
+      { x: 84, z: 336, s: 1.3 },
       { x: 108, z: 348, s: 1.2 },
+      { x: 100, z: 362, s: 1.1 },
+
       // Right rough corridor flanking dogleg and water hazard
       { x: 124, z: 104, s: 1.2 },
+      { x: 138, z: 120, s: 1.1 },
       { x: 130, z: 138, s: 1.0 },
+      { x: 150, z: 154, s: 1.3 },
       { x: 144, z: 172, s: 1.4 },
+      { x: 160, z: 192, s: 1.2 },
       { x: 154, z: 212, s: 1.2 },
+      { x: 170, z: 232, s: 1.3 },
       { x: 158, z: 252, s: 1.1 },
+      { x: 174, z: 258, s: 1.4 },
       { x: 184, z: 268, s: 1.3 },
+      { x: 196, z: 284, s: 1.2 },
       { x: 188, z: 304, s: 1.2 },
+      { x: 198, z: 322, s: 1.4 },
       { x: 176, z: 342, s: 1.1 },
+      { x: 186, z: 350, s: 1.3 },
+
       // Lush foliage backdrop nestled behind tournament green
+      { x: 114, z: 374, s: 1.2 },
       { x: 126, z: 384, s: 1.3 },
+      { x: 120, z: 396, s: 1.4 },
       { x: 136, z: 392, s: 1.4 },
+      { x: 132, z: 406, s: 1.3 },
       { x: 146, z: 396, s: 1.5 },
+      { x: 144, z: 412, s: 1.4 },
       { x: 156, z: 394, s: 1.3 },
+      { x: 158, z: 408, s: 1.5 },
       { x: 166, z: 388, s: 1.4 },
+      { x: 172, z: 402, s: 1.2 },
       { x: 138, z: 404, s: 1.2 },
       { x: 152, z: 406, s: 1.3 },
+      { x: 168, z: 414, s: 1.1 },
+      { x: 180, z: 382, s: 1.3 },
+      { x: 184, z: 398, s: 1.2 },
+
       // Framing Elevated Tee Box
       { x: 76, z: 46, s: 1.2 },
-      { x: 116, z: 50, s: 1.1 }
+      { x: 68, z: 38, s: 1.3 },
+      { x: 116, z: 50, s: 1.1 },
+      { x: 122, z: 40, s: 1.2 },
+      { x: 88, z: 28, s: 1.0 },
+      { x: 106, z: 26, s: 1.2 }
     ];
 
     for (let i = 0; i < bushPositions.length; i++) {
@@ -226,6 +258,21 @@ export class CourseManager {
     }
 
     // Refresh hole markers
+    
+
+    // 13. Coastal Cliff Walls (Cliff_01.glb) along the far left rough boundary
+    const cliffSegments = [
+      { x: 38, z: 120, s: 0.85, rot: 0.22 },
+      { x: 42, z: 205, s: 0.90, rot: 0.35 },
+      { x: 50, z: 288, s: 0.86, rot: 0.52 }
+    ];
+
+    for (const c of cliffSegments) {
+      const cy = this.terrain.getElevation(c.x, c.z);
+      const cliff = this.scenery.createCliff(c.x, cy, c.z, c.s, c.rot);
+      this.sceneryMeshes.push(cliff);
+    }
+
     this.setupHoleVisuals();
   }
 

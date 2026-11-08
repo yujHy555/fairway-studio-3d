@@ -65,6 +65,11 @@ export class SceneryFactory {
   private matGlbRock: StandardMaterial;
   private activeRocks: Mesh[] = [];
 
+  // Master geometry parsed directly from /models/Cliff_01.glb (1 primitive: coastal cliff)
+  private cliffVertexData: VertexData | null = null;
+  private matCliff: StandardMaterial;
+  private activeCliffs: Mesh[] = [];
+
   private activeFlags: Mesh[] = [];
   private windTime = 0;
 
@@ -129,6 +134,14 @@ export class SceneryFactory {
     this.matGlbRock.specularColor = new Color3(0.12, 0.12, 0.12);
     this.matGlbRock.specularPower = 36;
     this.matGlbRock.backFaceCulling = false;
+
+    // 1e. Coastal Cliff Wall Material (Cliff_01.glb)
+    this.matCliff = new StandardMaterial('matCliff', scene);
+    this.matCliff.diffuseColor = new Color3(1.0, 1.0, 1.0);
+    this.matCliff.emissiveColor = new Color3(0.06, 0.06, 0.06);
+    this.matCliff.specularColor = new Color3(0.08, 0.08, 0.08);
+    this.matCliff.specularPower = 28;
+    this.matCliff.backFaceCulling = false;
 
     // 2. Seamless Granite Boulder Material
     const rockTex = RealisticTextures.createSeamlessRockTextures(scene);
@@ -274,7 +287,8 @@ export class SceneryFactory {
       this.loadMediumPineTreeGlb(),
       this.loadHeroTreeGlb(),
       this.loadBushGlb(),
-      this.loadRockGlb()
+      this.loadRockGlb(),
+      this.loadCliffGlb()
     ]);
   }
 
@@ -637,6 +651,80 @@ export class SceneryFactory {
     }
   }
 
+  private async loadCliffGlb(): Promise<void> {
+    try {
+      const response = await fetch('/models/Cliff_01.glb');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading Cliff_01.glb`);
+      }
+      const arrayBuf = await response.arrayBuffer();
+      const view = new DataView(arrayBuf);
+      if (view.getUint32(0, true) !== 0x46546C67) {
+        throw new Error('Invalid GLB header in Cliff_01.glb');
+      }
+
+      const jsonChunkLen = view.getUint32(12, true);
+      const gltf = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(arrayBuf, 20, jsonChunkLen)));
+      const binChunkStart = 20 + jsonChunkLen + 8;
+
+      const prim = gltf.meshes[0].primitives[0];
+      const posAcc = gltf.accessors[prim.attributes.POSITION];
+      const normAcc = gltf.accessors[prim.attributes.NORMAL];
+      const uvAcc = gltf.accessors[prim.attributes.TEXCOORD_0];
+      const idxAcc = gltf.accessors[prim.indices];
+
+      const posBV = gltf.bufferViews[posAcc.bufferView];
+      const normBV = gltf.bufferViews[normAcc.bufferView];
+      const uvBV = gltf.bufferViews[uvAcc.bufferView];
+      const idxBV = gltf.bufferViews[idxAcc.bufferView];
+
+      const positions = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAcc.count * 3);
+      const normals = new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAcc.count * 3);
+      const uvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAcc.count * 2);
+
+      let indices: Uint32Array | Uint16Array;
+      if (idxAcc.componentType === 5125) {
+        indices = new Uint32Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      } else {
+        indices = new Uint16Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      }
+
+      const vd = new VertexData();
+      vd.positions = positions;
+      vd.normals = normals;
+      vd.uvs = uvs;
+      vd.indices = indices;
+      this.cliffVertexData = vd;
+
+      for (const c of this.activeCliffs) {
+        if (!c.isDisposed()) this.cliffVertexData.applyToMesh(c, false);
+      }
+
+      const createOpaqueTextureFromImageIdx = (imgIdx: number, name: string): Texture | null => {
+        const imgDef = gltf.images?.[imgIdx];
+        if (!imgDef || imgDef.bufferView === undefined) return null;
+        const bv = gltf.bufferViews[imgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        const tex = new Texture(url, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+        tex.name = name;
+        tex.anisotropicFilteringLevel = 16;
+        return tex;
+      };
+
+      // image 1: diffuse 2K texture
+      const cliffDiffTex = createOpaqueTextureFromImageIdx(1, 'cliffGlbDiff');
+      if (cliffDiffTex) this.matCliff.diffuseTexture = cliffDiffTex;
+
+      // image 0: normal map texture
+      const cliffNorTex = createOpaqueTextureFromImageIdx(0, 'cliffGlbNor');
+      if (cliffNorTex) this.matCliff.bumpTexture = cliffNorTex;
+    } catch (err) {
+      console.error('Failed to load Cliff_01.glb:', err);
+    }
+  }
+
   /**
    * Creates an instance of the realistic 3D Pine Tree (`pine_tree_medium_01_01.glb`)
    */
@@ -811,6 +899,49 @@ export class SceneryFactory {
    */
   public createOakTree(x: number, y: number, z: number, scale = 1.0, rotationY?: number): Mesh {
     return this.createPineTree(x, y, z, scale, rotationY);
+  }
+
+  /**
+   * Creates an instance of the coastal cliff wall (Cliff_01.glb) along the hole boundary.
+   */
+  public createCliff(x: number, y: number, z: number, scale = 1.0, rotationY = 0): Mesh {
+    const idx = this.activeCliffs.length;
+    const root = new Mesh(`cliff_glb_root_${idx}`, this.scene);
+    root.position.set(x, y - 0.2, z);
+    root.scaling.set(scale, scale, scale);
+    root.rotation.y = rotationY;
+
+    const cliffMesh = new Mesh(`cliff_glb_mesh_${idx}`, this.scene);
+    cliffMesh.material = this.matCliff;
+    cliffMesh.receiveShadows = true;
+    cliffMesh.isPickable = false;
+    cliffMesh.parent = root;
+
+    if (this.cliffVertexData) {
+      this.cliffVertexData.applyToMesh(cliffMesh, false);
+    }
+
+    this.activeCliffs.push(cliffMesh);
+
+    // Multi-point physical barrier collider along the ~80m cliff span
+    const cosR = Math.cos(rotationY);
+    const sinR = Math.sin(rotationY);
+    const span = 36 * scale;
+    for (let offset = -span; offset <= span; offset += 9 * scale) {
+      this.treeColliders.push({
+        x: x + offset * cosR,
+        y: y,
+        z: z - offset * sinR,
+        trunkRadius: 4.8 * scale,
+        trunkHeight: 12.0 * scale,
+        canopyRadius: 0,
+        canopyBottomY: 0,
+        canopyTopY: 0,
+        isHero: false
+      });
+    }
+
+    return root;
   }
 
   /**

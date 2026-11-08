@@ -467,10 +467,10 @@ export class TerrainGrid {
         // Constant uniform physical metric dimensions across all angles:
         // Sand bed radius: 84% of base contour
         const rSand = baseRad * 0.84;
-        // Strict constant 1.25m revetted lip width (equal length and width everywhere, never wide/thin)
-        const lipWidth = 1.25;
+        // Refined, narrower revetted sod lip (0.80m uniform width)
+        const lipWidth = 0.80;
         const rLipRim = rSand + lipWidth;
-        const rCollar = rLipRim + 1.20;
+        const rCollar = rLipRim + 0.85;
 
         if (rMeters < rCollar) {
           const effDepth = Math.max(-0.95, Math.min(-0.65, feat.depthProfile || -0.80));
@@ -486,13 +486,13 @@ export class TerrainGrid {
             const bowl = Math.cos(normR * Math.PI * 0.22);
             h = sandFloorY + (sandEdgeY - sandFloorY) * (1.0 - bowl);
           } else if (rMeters <= rLipRim) {
-            // Constant 1.25m wide revetted sod lip with consistent elevation rise across all slopes
+            // Constant 0.80m wide revetted sod lip with consistent elevation rise across all slopes
             const tLip = (rMeters - rSand) / lipWidth;
             const sCurve = 0.5 * (1.0 - Math.cos(tLip * Math.PI));
             h = sandEdgeY * (1.0 - sCurve) + rimY * sCurve;
           } else {
             // Smooth collar blend into surrounding terrain
-            const tCollar = (rMeters - rLipRim) / 1.20;
+            const tCollar = (rMeters - rLipRim) / 0.85;
             const blend = 0.5 * (1.0 - Math.cos(tCollar * Math.PI));
             h = rimY * (1.0 - blend) + h * blend;
           }
@@ -1400,15 +1400,15 @@ export class TerrainGrid {
       ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.BUNKER) {
-      // PGA Tour 2K25 organic bunker style: varied multi-lobed silhouettes, equal 1.25m revetted lip & directional lip shadow
+      // PGA Tour 2K25 organic bunker style: varied multi-lobed silhouettes, narrower 0.80m lip & silky smooth texture blending
       const shapeIdx = feat.bunkerShapeIndex ?? (Math.floor(feat.centerX * 0.35 + feat.centerZ * 0.65) % 5);
       const baseSandPts = this.generateKidneyMeterPoints(halfW, halfL, 0.84, shapeIdx, 192);
-      const subtleCollarPts = this.computeUniformOffsetPolygon(baseSandPts, 1.25);
+      const subtleCollarPts = this.computeUniformOffsetPolygon(baseSandPts, 0.80);
 
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
-      // 1. Smooth manicured turf collar around the bunker edge (+0.75m)
+      // 1. Smooth manicured turf collar around the bunker edge (+0.80m)
       this.traceLocalMeterPolygon(ctx, subtleCollarPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
       ctx.fillStyle = patterns.fringePattern;
       ctx.fill();
@@ -1418,43 +1418,16 @@ export class TerrainGrid {
       ctx.fillStyle = patterns.sandPattern;
       ctx.fill();
 
-      // 3. Directional sun-side lip cast shadow crescent (matching PGA Tour 2K25 reference photos)
+      // 3. Super smooth sand-to-grass blend transition (zero jagged edges, zero fake dark rectangular artifacts)
+      // Real soft 3D lip shadows are cast dynamically by CascadedShadowGenerator
       ctx.save();
-      this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
+      this.traceLocalMeterPolygon(ctx, subtleCollarPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
       ctx.clip();
-
-      const cosR = Math.cos(feat.rotationRad);
-      const sinR = Math.sin(feat.rotationRad);
-      const shadowShiftWorldX = -1.45;
-      const shadowShiftWorldZ = -1.05;
-      const shiftLocalX = shadowShiftWorldX * cosR + shadowShiftWorldZ * sinR;
-      const shiftLocalZ = -shadowShiftWorldX * sinR + shadowShiftWorldZ * cosR;
-
-      const litSandPts = baseSandPts.map((p) => ({
-        x: p.x + shiftLocalX,
-        z: p.z + shiftLocalZ
-      }));
-
-      // Soft ambient occlusion and lip depth shade
-      ctx.fillStyle = 'rgba(24, 34, 40, 0.38)';
-      ctx.fillRect(
-        (feat.centerX - halfW * 1.5) * sX,
-        (feat.centerZ - halfL * 1.5) * sZ,
-        halfW * 3.0 * sX,
-        halfL * 3.0 * sZ
-      );
-
-      ctx.filter = 'blur(2px)';
-      this.traceLocalMeterPolygon(ctx, litSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.fillStyle = patterns.sandPattern;
-      ctx.fill();
-      ctx.restore();
-
-      // 4. Subtle, clean sod lip edge line (AAA manicured cut turf perimeter)
       this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.strokeStyle = 'rgba(32, 40, 26, 0.45)';
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = patterns.sandPattern;
+      ctx.lineWidth = 1.2 * sX;
       ctx.stroke();
+      ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.TEE) {
       // Base inside Tee Box plateau (0.90x) in local meters with narrower fringe & first-cut rings

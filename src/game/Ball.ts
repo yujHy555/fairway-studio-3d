@@ -64,6 +64,7 @@ export class Ball {
   private readyIndicatorMat: StandardMaterial;
   private readyFlashActive = false;
   private readyFlashElapsed = 0;
+  private creepingTimer = 0;
 
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
@@ -82,16 +83,20 @@ export class Ball {
 
     const ballTex = new Texture('/textures/golf_ball_texture_01.jpg', this.scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
     ballTex.anisotropicFilteringLevel = 16;
-    ballTex.uScale = 2.0;
-    ballTex.vScale = 2.0;
+    ballTex.wrapU = Texture.WRAP_ADDRESSMODE;
+    ballTex.wrapV = Texture.WRAP_ADDRESSMODE;
+    // Tiled small so dimples are clearly visible and realistic
+    ballTex.uScale = 8.0;
+    ballTex.vScale = 4.0;
 
     const mat = new StandardMaterial('ballMat', this.scene);
     mat.diffuseTexture = ballTex;
     mat.diffuseColor = new Color3(1.0, 1.0, 1.0);
-    mat.specularColor = new Color3(0.92, 0.92, 0.95);
-    mat.specularPower = 96;
-    mat.bumpTexture = ballTex;
-    mat.bumpTexture.level = 0.85;
+    mat.ambientColor = new Color3(0.35, 0.35, 0.35);
+    // Non-glossy matte tour urethane elastomer cover
+    mat.specularColor = new Color3(0.08, 0.08, 0.08);
+    mat.specularPower = 20;
+    // Zero bump distortion to prevent black normal/pole artifacts
     this.mesh.material = mat;
     this.mesh.receiveShadows = true;
 
@@ -512,6 +517,18 @@ export class Ball {
       this.curVelocity.x *= speedFactor;
       this.curVelocity.z *= speedFactor;
 
+      // Bunker lip barrier: virtually impossible for balls inside a bunker to climb up and roll out
+      if (surface === SurfaceType.BUNKER) {
+        const nextX = this.mesh.position.x + this.curVelocity.x * dt;
+        const nextZ = this.mesh.position.z + this.curVelocity.z * dt;
+        const nextSurf = this.terrain.getSurfaceAt(nextX, nextZ);
+        if (nextSurf !== SurfaceType.BUNKER) {
+          // Lip bank catches ball and reflects it gently back down into the sand bed
+          this.curVelocity.x *= -0.22;
+          this.curVelocity.z *= -0.22;
+        }
+      }
+
       this.mesh.position.x += this.curVelocity.x * dt;
       this.mesh.position.z += this.curVelocity.z * dt;
 
@@ -583,11 +600,24 @@ export class Ball {
         return;
       }
 
-      // 4. Decisive settling — never allow settling while on a steep slope/fringe bank (> 0.075 rad) so ball rolls into bunker
-      const canSettleOnSlope = surface === SurfaceType.BUNKER ? slopeSin < 0.16 : slopeSin < 0.075;
-      if (newSpeed < 0.15 && canSettleOnSlope) {
+      // 4. Decisive settling logic by lie:
+      // Rough grass or first cut securely holds balls even on slopes up to 22 deg (slopeSin < 0.38)
+      // Sand traps hold balls on slopes up to 16 deg (slopeSin < 0.28)
+      // Fairway holds balls on slopes up to 11 deg (slopeSin < 0.20)
+      // Green / Fringe: steeper slopes (> 0.12) allow balls to roll down contours
+      let maxSettleSlope = 0.12;
+      if (surface === SurfaceType.ROUGH || surface === SurfaceType.FIRST_CUT) {
+        maxSettleSlope = 0.38;
+      } else if (surface === SurfaceType.BUNKER) {
+        maxSettleSlope = 0.28;
+      } else if (surface === SurfaceType.FAIRWAY || surface === SurfaceType.TEE) {
+        maxSettleSlope = 0.20;
+      }
+
+      const canSettleOnSlope = slopeSin < maxSettleSlope;
+      if (newSpeed < 0.16 && canSettleOnSlope) {
         this.atRestCounter += dt;
-        if (this.atRestCounter > 0.12) {
+        if (this.atRestCounter > 0.14) {
           this.state = BallState.AT_REST;
           this.curVelocity = { x: 0, y: 0, z: 0 };
           this.clearTracer();
@@ -595,6 +625,21 @@ export class Ball {
         }
       } else {
         this.atRestCounter = 0;
+      }
+
+      // Universal creeping timeout failsafe: if speed < 0.18 for > 1.0s on any terrain (such as far rough slopes),
+      // decisively settle and advance to the next shot so the flight visualizer never gets stuck!
+      if (newSpeed < 0.18) {
+        this.creepingTimer = (this.creepingTimer || 0) + dt;
+        if (this.creepingTimer > 1.0) {
+          this.state = BallState.AT_REST;
+          this.curVelocity = { x: 0, y: 0, z: 0 };
+          this.clearTracer();
+          this.creepingTimer = 0;
+          this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
+        }
+      } else {
+        this.creepingTimer = 0;
       }
     }
   }
@@ -655,15 +700,24 @@ export class Ball {
     const vTangX = this.curVelocity.x - vNormX;
     const vTangZ = this.curVelocity.z - vNormZ;
 
-    // Direct bunker sand landing: soft sand deadens impact immediately, stopping with virtually zero bounce
+    // Bunker sand landing: soft sand cushion with small realistic bounce and roll so it does not stop dead
     if (surface === SurfaceType.BUNKER) {
-      this.state = BallState.ROLLING;
-      this.curVelocity.x = vTangX * 0.08;
-      this.curVelocity.y = 0;
-      this.curVelocity.z = vTangZ * 0.08;
-      this.curSpin = { x: 0, y: 0, z: 0 };
-      this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
-      return;
+      const sandBounceVy = -vNormY * 0.14;
+      if (Math.abs(sandBounceVy) > 0.38 && impactSpeed > 6.0) {
+        this.curVelocity.x = vTangX * 0.28;
+        this.curVelocity.y = Math.min(1.0, Math.abs(sandBounceVy));
+        this.curVelocity.z = vTangZ * 0.28;
+        this.tracerPoints.push(this.mesh.position.clone());
+        return;
+      } else {
+        this.state = BallState.ROLLING;
+        this.curVelocity.x = vTangX * 0.24;
+        this.curVelocity.y = 0;
+        this.curVelocity.z = vTangZ * 0.24;
+        this.curSpin = { x: 0, y: 0, z: 0 };
+        this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
+        return;
+      }
     }
 
     const bounceVy = -vNormY * props.restitution;
