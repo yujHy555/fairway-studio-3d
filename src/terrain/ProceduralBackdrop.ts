@@ -51,6 +51,10 @@ export class ProceduralBackdrop {
     return (total / maxValue) * 42.0;
   }
 
+  public getElevation(wx: number, wz: number): number {
+    return this.sampleHeight(wx, wz);
+  }
+
   private sampleHeight(wx: number, wz: number): number {
     const dx = Math.max(0, Math.max(this.courseMinX - wx, wx - this.courseMaxX));
     const dz = Math.max(0, Math.max(this.courseMinZ - wz, wz - this.courseMaxZ));

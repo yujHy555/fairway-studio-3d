@@ -5,39 +5,39 @@ export const PRESET_FEATURES: PresetFeature[] = [
   // BUNKERS
   {
     id: 'bunker_pot',
-    name: 'Pot Bunker',
+    name: 'Kidney Greenside Bunker',
     category: 'bunker',
-    description: 'Deep Scottish style pot bunker with steep revetted sod lip (-1.15m depth)',
+    description: 'Deep kidney-shaped greenside bunker with sharp revetted sod lip (-1.40m depth)',
     icon: '🕳️',
     surfaceType: SurfaceType.BUNKER,
-    width: 10,
-    length: 10,
-    depthProfile: -1.15,
-    lipHeight: 0.45
+    width: 12,
+    length: 18,
+    depthProfile: -1.40,
+    lipHeight: 0.72
   },
   {
     id: 'bunker_fairway_crescent',
-    name: 'Crescent Fairway Bunker',
+    name: 'Kidney Fairway Bunker',
     category: 'bunker',
-    description: 'Sweeping championship fairway hazard with raised berm (-1.25m depth)',
+    description: 'Sweeping kidney-shaped fairway hazard with raised sod berm (-1.35m depth)',
     icon: '🥐',
     surfaceType: SurfaceType.BUNKER,
-    width: 14,
-    length: 24,
-    depthProfile: -1.25,
-    lipHeight: 0.50
+    width: 15,
+    length: 25,
+    depthProfile: -1.35,
+    lipHeight: 0.68
   },
   {
     id: 'bunker_greenside_waste',
-    name: 'Large Waste Bunker',
+    name: 'Large Kidney Waste Bunker',
     category: 'bunker',
-    description: 'Expansive quartz sand bunker flanking fairway or green (-1.10m depth)',
+    description: 'Expansive kidney sand hazard with defined turf lips (-1.30m depth)',
     icon: '🏖️',
     surfaceType: SurfaceType.BUNKER,
     width: 20,
     length: 34,
-    depthProfile: -1.10,
-    lipHeight: 0.40
+    depthProfile: -1.30,
+    lipHeight: 0.65
   },
 
   // GREENS

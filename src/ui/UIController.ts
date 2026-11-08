@@ -17,7 +17,8 @@ export interface UIEventCallbacks {
   onAddHole: () => void;
   onHoleParChange: (par: 3 | 4 | 5) => void;
   onToggleGrid: () => boolean;
-  onToggleContours: () => boolean;
+  onToggleGreenGrid: () => boolean;
+  onToggleGreenDots: () => boolean;
   onExportCourse: () => void;
   onImportCourse: (json: string) => void;
   onClubSelect: (club: ClubSpec) => void;
@@ -87,10 +88,13 @@ export class UIController {
         </div>
 
         <div class="header-right">
-          <button id="btn-toggle-contours" class="btn btn-icon" title="Toggle Green Contours & Slope Beads">
-            <span>〰️ Contours</span>
+          <button id="btn-toggle-green-grid" class="btn btn-icon active" title="Toggle Green Contour Grid Lines">
+            <span>🔲 Green Grid</span>
           </button>
-          <button id="btn-toggle-grid" class="btn btn-icon" title="Toggle 1m Grid Overlay">
+          <button id="btn-toggle-green-dots" class="btn btn-icon active" title="Toggle Green Slope Flow Dots">
+            <span>🟢 Green Dots</span>
+          </button>
+          <button id="btn-toggle-grid" class="btn btn-icon" title="Toggle 1m Course Grid Overlay">
             <span>📏 1m Grid</span>
           </button>
           <button id="btn-export-course" class="btn btn-icon" title="Export Course JSON">
@@ -113,8 +117,8 @@ export class UIController {
           <span class="scale-info">1m x 1m Grid</span>
         </div>
         <div class="designer-controls-hint" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 6px 10px; margin: 0 12px 10px 12px; font-size: 11px; color: #a7f3d0; line-height: 1.4;">
-          <strong>Left-Click Drag:</strong> Orbit View &nbsp;|&nbsp; <strong>Right-Click:</strong> Place / Sculpt<br/>
-          <strong>Middle-Click / WASD:</strong> Pan &nbsp;|&nbsp; <strong>Scroll:</strong> Zoom
+          <strong>LMB Hold:</strong> Orbit &nbsp;|&nbsp; <strong>RMB / MMB Hold:</strong> Pan &amp; Zoom<br/>
+          <strong>Click Terrain:</strong> Place / Sculpt &nbsp;|&nbsp; <strong>Shift + Drag:</strong> Paint Sculpt
         </div>
 
         <div class="panel-section">
@@ -617,10 +621,15 @@ export class UIController {
       document.getElementById('btn-toggle-grid')!.classList.toggle('active', active);
     });
 
-    // Contours toggle
-    document.getElementById('btn-toggle-contours')!.addEventListener('click', () => {
-      const active = this.callbacks.onToggleContours();
-      document.getElementById('btn-toggle-contours')!.classList.toggle('active', active);
+    // Separate Green Grid & Green Dots toggles
+    document.getElementById('btn-toggle-green-grid')!.addEventListener('click', () => {
+      const active = this.callbacks.onToggleGreenGrid();
+      document.getElementById('btn-toggle-green-grid')!.classList.toggle('active', active);
+    });
+
+    document.getElementById('btn-toggle-green-dots')!.addEventListener('click', () => {
+      const active = this.callbacks.onToggleGreenDots();
+      document.getElementById('btn-toggle-green-dots')!.classList.toggle('active', active);
     });
 
     // Export / Import

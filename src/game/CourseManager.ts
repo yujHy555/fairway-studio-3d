@@ -32,10 +32,10 @@ export class CourseManager {
         {
           number: 1,
           par: 4,
-          name: 'The Valley Opener',
-          teePosition: { x: 110, y: 0.5, z: 40 },
-          pinPosition: { x: 110, y: 0.5, z: 360 },
-          waypoints: [{ x: 110, y: 0, z: 200 }]
+          name: 'The Valley Dogleg',
+          teePosition: { x: 95, y: 8.0, z: 42 },
+          pinPosition: { x: 148, y: 1.25, z: 360 },
+          waypoints: [{ x: 102, y: 2.2, z: 200 }]
         }
       ],
       features: [],
@@ -51,47 +51,57 @@ export class CourseManager {
   }
 
   /**
-   * Builds an authentic, playable championship golf hole
+   * Builds an authentic championship dogleg-right golf hole:
+   * - Starts from a high elevated Tee Box (~8.0m) at (95, 42)
+   * - Continuous, seamless Dogleg-Right Fairway descending into a small valley (~2.2m)
+   * - Kidney-shaped bunkers with sharply defined revetted sod lips guarding the dogleg & green
+   * - Putting green nestled slightly lower (~1.25m) than the approach fairway at (148, 360)
    */
   public initDefaultChampionshipHole() {
-    const cx = 110;
+    // 1. Elevated Championship Tee Box on the high bluff at (95, 42)
+    this.terrain.stampFeature(95, 42, 12, 16, 0.05, SurfaceType.TEE, 1.30);
 
-    // 1. Elevated Tee Box at Z=40
-    this.terrain.stampFeature(cx, 40, 10, 16, 0, SurfaceType.TEE, 0.4);
+    // 2. Continuous Seamless Dogleg-Right Fairway descending into the valley
+    this.terrain.stampDoglegFairway([
+      { x: 96, z: 78, width: 28 },
+      { x: 100, z: 195, width: 42 },
+      { x: 126, z: 280, width: 38 },
+      { x: 145, z: 332, width: 30 }
+    ]);
 
-    // 2. Primary Fairway Strip from Z=70 to Z=320
-    this.terrain.stampFeature(cx, 150, 42, 130, 0, SurfaceType.FAIRWAY);
-    this.terrain.stampFeature(cx, 260, 38, 120, 0, SurfaceType.FAIRWAY);
+    // 3. Right Dogleg Corner Kidney Bunker (guards aggressive line cutting the dogleg)
+    this.terrain.stampFeature(124, 192, 14, 24, 0.35, SurfaceType.BUNKER, -1.35, 0.72);
 
-    // 3. Right Fairway Bunker at Z=190 (Championship deep pot bunker with raised lip)
-    this.terrain.stampFeature(cx + 20, 195, 14, 24, 0.2, SurfaceType.BUNKER, -1.25, 0.60);
+    // 4. Left Outer Elbow Kidney Bunker (catches long drives through the dogleg turn)
+    this.terrain.stampFeature(78, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
 
-    // 4. Left Fairway Bunker at Z=240
-    this.terrain.stampFeature(cx - 22, 245, 16, 28, -0.3, SurfaceType.BUNKER, -1.35, 0.65);
-
-    // 5. Scenic Water Hazard Pond on right side between Z=260 and Z=300
-    const pondRimElevation = this.terrain.getElevation(cx + 34, 280);
-    this.terrain.stampFeature(cx + 34, 280, 26, 45, 0.1, SurfaceType.WATER, -2.4);
-    const pondWater = this.scenery.createWaterPlane(cx + 34, pondRimElevation, 280, 24, 42);
+    // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
+    const pondRimElevation = this.terrain.getElevation(162, 285);
+    this.terrain.stampFeature(162, 285, 26, 44, 0.25, SurfaceType.WATER, -2.4);
+    const pondWater = this.scenery.createWaterPlane(162, pondRimElevation, 285, 24, 41);
     this.sceneryMeshes.push(pondWater);
 
-    // 6. Tournament Green at Z=360
-    this.terrain.stampFeature(cx, 360, 26, 34, 0, SurfaceType.GREEN, 0.35);
+    // 6. Lower Tournament Green at (148, 360) — sits ~0.95m lower than the approach fairway
+    this.terrain.stampFeature(148, 360, 28, 34, 0.15, SurfaceType.GREEN, 0.0);
 
-    // 7. Greenside Pot Bunker guarding left pin approach
-    this.terrain.stampFeature(cx - 15, 355, 9, 12, 0.4, SurfaceType.BUNKER, -1.45, 0.75);
+    // 7. Greenside Front-Left Kidney Bunker with deep revetted sod lip
+    this.terrain.stampFeature(131, 350, 12, 18, 0.45, SurfaceType.BUNKER, -1.45, 0.78);
 
-    // 8. Low-poly Pine and Oak trees lining the rough
+    // 8. Greenside Back-Right Kidney Bunker
+    this.terrain.stampFeature(164, 366, 11, 16, -0.40, SurfaceType.BUNKER, -1.35, 0.70);
+
+    // 9. Realistic Pine and Oak trees framing the dogleg-right valley corridor
     const treePositions = [
-      { x: cx - 35, z: 80, type: 'pine', s: 1.1 },
-      { x: cx - 42, z: 120, type: 'oak', s: 1.2 },
-      { x: cx + 38, z: 100, type: 'pine', s: 1.0 },
-      { x: cx + 45, z: 150, type: 'oak', s: 1.3 },
-      { x: cx - 38, z: 200, type: 'pine', s: 1.2 },
-      { x: cx - 44, z: 280, type: 'pine', s: 1.4 },
-      { x: cx + 42, z: 340, type: 'pine', s: 1.2 },
-      { x: cx - 28, z: 380, type: 'oak', s: 1.1 },
-      { x: cx + 26, z: 385, type: 'pine', s: 1.3 }
+      { x: 64, z: 65, type: 'pine', s: 1.15 },
+      { x: 58, z: 115, type: 'oak', s: 1.25 },
+      { x: 132, z: 95, type: 'pine', s: 1.10 },
+      { x: 142, z: 145, type: 'oak', s: 1.30 },
+      { x: 60, z: 175, type: 'pine', s: 1.25 },
+      { x: 56, z: 255, type: 'pine', s: 1.40 },
+      { x: 88, z: 315, type: 'oak', s: 1.20 },
+      { x: 184, z: 335, type: 'pine', s: 1.25 },
+      { x: 120, z: 386, type: 'oak', s: 1.15 },
+      { x: 174, z: 388, type: 'pine', s: 1.35 }
     ];
 
     for (const t of treePositions) {
@@ -119,6 +129,11 @@ export class CourseManager {
     const teeY = this.terrain.getElevation(hole.teePosition.x, hole.teePosition.z);
     hole.teePosition.y = teeY;
     this.activeTeeMesh = this.scenery.createTeeMarkers(hole.teePosition.x, teeY, hole.teePosition.z);
+
+    // Orient tee markers perpendicular to the initial fairway target line
+    const targetPt = hole.waypoints && hole.waypoints.length > 0 ? hole.waypoints[0] : hole.pinPosition;
+    const headingRad = Math.atan2(targetPt.x - hole.teePosition.x, targetPt.z - hole.teePosition.z);
+    this.activeTeeMesh.rotation.y = headingRad;
   }
 
   public getSceneryMeshes(): Mesh[] {

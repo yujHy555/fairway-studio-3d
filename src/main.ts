@@ -62,7 +62,9 @@ class FairwayStudioApp {
   private brushStrength = 0.5;
   private targetSurface: SurfaceType = SurfaceType.FAIRWAY;
   private activePreset: PresetFeature | null = null;
-  private isRightMouseDown = false;
+  private isPointerDownInDesigner = false;
+  private pointerDownX = 0;
+  private pointerDownY = 0;
 
   // 1m Grid mesh conforming to terrain surface
   private gridMesh: Mesh | null = null;
@@ -131,6 +133,12 @@ class FairwayStudioApp {
     // 11. Input & Pointer Interactions
     this.setupPointerInteractions();
 
+    // Enforce zero-lag terrain collision right before camera matrix evaluation on every frame
+    this.scene.onBeforeCameraRenderObservable.add(() => {
+      const dt = this.engine.getDeltaTime() / 1000;
+      this.cameraCtrl.enforceTerrainCollision((x, z) => this.getWorldElevation(x, z), dt);
+    });
+
     // 12. Start Render Loop
     this.engine.runRenderLoop(() => {
       const dt = this.engine.getDeltaTime() / 1000;
@@ -144,10 +152,10 @@ class FairwayStudioApp {
   }
 
   private setupLighting() {
-    // 1. HDRI Dome Environment Lighting & 360 Sky (Misty Pines 4K)
+    // 1. HDRI Dome Environment Lighting & 360 Sky (Approaching Storm 4K)
     try {
       const hdrTexture = new HDRCubeTexture(
-        '/misty_pines_4k.hdr',
+        '/approaching_storm_4k.hdr',
         this.scene,
         512,
         false,
@@ -156,11 +164,11 @@ class FairwayStudioApp {
         true
       );
       this.scene.environmentTexture = hdrTexture;
-      this.scene.environmentIntensity = 0.55;
+      this.scene.environmentIntensity = 0.62;
 
-      const skybox = this.scene.createDefaultSkybox(hdrTexture, true, 2200, 0.04);
+      const skybox = this.scene.createDefaultSkybox(hdrTexture, true, 2200, 0.03);
       if (skybox) {
-        skybox.name = 'MistyPinesSkybox';
+        skybox.name = 'ApproachingStormSkybox';
         skybox.isPickable = false;
         skybox.position.set(110, 0, 230);
         skybox.infiniteDistance = true;
@@ -231,8 +239,10 @@ class FairwayStudioApp {
     for (const m of meshes) {
       if (
         m.name !== 'GolfTerrain' &&
+        m.name !== 'BunkerSandPhotoOverlay' &&
+        m.name !== 'TeeBoxPhotoOverlay' &&
         m.name !== 'ProceduralBackdropMesh' &&
-        m.name !== 'MistyPinesSkybox' &&
+        m.name !== 'ApproachingStormSkybox' &&
         !m.name.startsWith('water_') &&
         m.name !== 'gridOverlay' &&
         m.name !== 'greenContourLineGrid' &&
@@ -240,6 +250,7 @@ class FairwayStudioApp {
         !m.name.startsWith('ballToptracer') &&
         !m.name.startsWith('designerBrush') &&
         !m.name.startsWith('cup_') &&
+        !m.name.startsWith('slopeBead') &&
         m.getTotalVertices() > 0
       ) {
         try {
@@ -257,22 +268,37 @@ class FairwayStudioApp {
     }
   }
 
+  public getWorldElevation(x: number, z: number): number {
+    if (x >= 2 && x <= this.terrain.width - 2 && z >= 2 && z <= this.terrain.length - 2) {
+      return this.terrain.getElevation(x, z);
+    }
+    const tElev = this.terrain.getElevation(x, z);
+    const bElev = this.backdrop ? this.backdrop.getElevation(x, z) : 0;
+    return Math.max(tElev, bElev);
+  }
+
   private placeBallAtActiveTee() {
-    const tee = this.courseManager.currentHole.teePosition;
+    const hole = this.courseManager.currentHole;
+    const tee = hole.teePosition;
     const groundY = this.terrain.getElevation(tee.x, tee.z);
     // Seat ball directly on the exact terrain surface at BALL_RENDER_RADIUS (zero floating!)
     this.ball.setPosition(tee.x, groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS, tee.z);
 
-    const pin = this.courseManager.currentHole.pinPosition;
+    const pin = hole.pinPosition;
     this.ball.setTargetPin(pin);
-    const dx = pin.x - tee.x;
-    const dz = pin.z - tee.z;
-    this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+
+    // On dogleg holes, aim initial tee shot down the fairway toward the first dogleg landing waypoint
+    const initialTarget = (hole.waypoints && hole.waypoints.length > 0) ? hole.waypoints[0] : pin;
+    const aimDx = initialTarget.x - tee.x;
+    const aimDz = initialTarget.z - tee.z;
+    this.currentAimAzimuth = (Math.atan2(aimDx, aimDz) * 180) / Math.PI;
     this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
 
     this.cameraCtrl.setMode('aim');
     this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
 
+    const dx = pin.x - tee.x;
+    const dz = pin.z - tee.z;
     const distToPin = Math.sqrt(dx * dx + dz * dz);
     this.activeClub = getRecommendedClub(distToPin, false);
     this.swingEngine.setClub(this.activeClub);
@@ -356,8 +382,11 @@ class FairwayStudioApp {
       onToggleGrid: () => {
         return this.toggle1mGrid();
       },
-      onToggleContours: () => {
-        return this.greenVisualizer.toggleVisible();
+      onToggleGreenGrid: () => {
+        return this.greenVisualizer.toggleGrid();
+      },
+      onToggleGreenDots: () => {
+        return this.greenVisualizer.toggleDots();
       },
       onExportCourse: () => {
         const json = this.courseManager.exportCourseJSON();
@@ -729,29 +758,38 @@ class FairwayStudioApp {
             this.brushVisualizer.setVisible(true);
             this.brushVisualizer.updatePosition(pick.pickedPoint);
 
-            if (this.isRightMouseDown && this.activeDesignerTool === 'sculpt') {
+            // Continuous brush sculpting when holding Shift + dragging on terrain
+            if (this.isPointerDownInDesigner && pointerInfo.event.shiftKey && this.activeDesignerTool === 'sculpt') {
               this.handleDesignerActionAtPoint(pick.pickedPoint);
             }
           } else {
             this.brushVisualizer.setVisible(false);
           }
         } else if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
-          // Left-click (button 0) is strictly for camera navigation/orbit in Designer Mode.
-          // Right-click (button 2) places items and sculpts on the terrain!
-          if (pointerInfo.event.button === 2) {
-            this.isRightMouseDown = true;
-            const pick = this.scene.pick(
-              this.scene.pointerX,
-              this.scene.pointerY,
-              (m) => m.name === 'GolfTerrain'
-            );
-            if (pick && pick.hit && pick.pickedPoint) {
-              this.handleDesignerActionAtPoint(pick.pickedPoint);
-            }
+          // Holding down LMB (0) orbits, MMB (1) pans, and RMB (2) pans & zooms.
+          // A clean click without dragging (< 5px) on the terrain places/sculpts at the brush cursor!
+          if (pointerInfo.event.button === 0 || pointerInfo.event.button === 2) {
+            this.isPointerDownInDesigner = true;
+            this.pointerDownX = pointerInfo.event.clientX;
+            this.pointerDownY = pointerInfo.event.clientY;
           }
         } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
-          if (pointerInfo.event.button === 2) {
-            this.isRightMouseDown = false;
+          if (this.isPointerDownInDesigner && (pointerInfo.event.button === 0 || pointerInfo.event.button === 2)) {
+            this.isPointerDownInDesigner = false;
+            const dragDist = Math.hypot(
+              pointerInfo.event.clientX - this.pointerDownX,
+              pointerInfo.event.clientY - this.pointerDownY
+            );
+            if (dragDist < 5.0) {
+              const pick = this.scene.pick(
+                this.scene.pointerX,
+                this.scene.pointerY,
+                (m) => m.name === 'GolfTerrain'
+              );
+              if (pick && pick.hit && pick.pickedPoint) {
+                this.handleDesignerActionAtPoint(pick.pickedPoint);
+              }
+            }
           }
         }
       } else {
@@ -873,7 +911,7 @@ class FairwayStudioApp {
     }
 
     // Smooth camera navigation & ground clearance at all zoom levels
-    this.cameraCtrl.enforceTerrainCollision((x, z) => this.terrain.getElevation(x, z), dt);
+    this.cameraCtrl.enforceTerrainCollision((x, z) => this.getWorldElevation(x, z), dt);
   }
 }
 

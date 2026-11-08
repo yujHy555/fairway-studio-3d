@@ -16,6 +16,11 @@ export class CameraController {
   public isUserDragging: boolean = false;
   private keysPressed: Set<string> = new Set();
 
+  // RMB hold-to-pan-and-zoom state
+  private isRmbDown: boolean = false;
+  private lastRmbX: number = 0;
+  private lastRmbY: number = 0;
+
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
 
@@ -24,31 +29,91 @@ export class CameraController {
       -Math.PI / 2,
       Math.PI / 2.5,
       6.5,
-      new Vector3(110, 1.0, 40),
+      new Vector3(95, 8.0, 42),
       this.scene
     );
-    this.camera.attachControl(canvas, true);
+    // Attach control with MMB (button 1) as Babylon's native panning button and LMB (button 0) as orbit
+    this.camera.attachControl(canvas, true, false);
+    this.camera._panningMouseButton = 1;
+
+    const pointersInput = (this.camera.inputs?.attached?.pointers as any);
+    if (pointersInput) {
+      // LMB (0) = Orbit, MMB (1) = Native Pan; RMB (2) is handled below for combined Pan & Zoom
+      pointersInput.buttons = [0, 1];
+    }
 
     // Near/Far planes tuned for both millimeter close-ups of the golf ball and 1km mountain vistas
-    this.camera.minZ = 0.08;
+    this.camera.minZ = 0.10;
     this.camera.maxZ = 2400;
 
-    // Remove default keyboard rotation on ArcRotateCamera so we can provide smooth WASD ground-gliding in Designer/Scout
+    // Remove default keyboard rotation on ArcRotateCamera so we can provide smooth WASD ground-gliding
     this.camera.keysUp = [];
     this.camera.keysDown = [];
     this.camera.keysLeft = [];
     this.camera.keysRight = [];
 
-    // Prevent browser right-click context menu on canvas so Right-Click places items cleanly in Designer Mode
+    // Prevent browser right-click context menu on canvas
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 0 || (this.mode !== 'designer' && e.button === 2)) {
+      if (e.button === 0 || e.button === 1 || e.button === 2) {
         this.isUserDragging = true;
       }
+      if (e.button === 2) {
+        this.isRmbDown = true;
+        this.lastRmbX = e.clientX;
+        this.lastRmbY = e.clientY;
+      }
     });
-    window.addEventListener('pointerup', () => {
+
+    window.addEventListener('pointermove', (e) => {
+      if (!this.isRmbDown) return;
+      const dx = e.clientX - this.lastRmbX;
+      const dy = e.clientY - this.lastRmbY;
+      this.lastRmbX = e.clientX;
+      this.lastRmbY = e.clientY;
+
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+
+      const r = Math.max(1.5, this.camera.radius);
+      const panScale = r * 0.0022;
+
+      // Camera horizontal basis vectors in the XZ plane
+      const forwardX = -Math.cos(this.camera.alpha);
+      const forwardZ = -Math.sin(this.camera.alpha);
+      const rightX = Math.sin(this.camera.alpha);
+      const rightZ = -Math.cos(this.camera.alpha);
+
+      // Horizontal RMB drag pans left/right across the course
+      const deltaX = -dx * rightX * panScale;
+      const deltaZ = -dx * rightZ * panScale;
+
+      if (e.ctrlKey || e.altKey) {
+        // Pure zoom when modifier held with RMB
+        this.camera.radius = Math.max(
+          this.camera.lowerRadiusLimit || 1.2,
+          Math.min(this.camera.upperRadiusLimit || 360, this.camera.radius + dy * r * 0.0065)
+        );
+      } else {
+        // Combined smooth course pan + zoom when holding down RMB and dragging
+        const forwardPan = dy * panScale * 0.85;
+        this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + deltaX + forwardX * forwardPan));
+        this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + deltaZ + forwardZ * forwardPan));
+
+        // Pulling RMB backwards (dy > 0) also smoothly zooms out; pushing forwards zooms in
+        const zoomDelta = dy * r * 0.0038;
+        this.camera.radius = Math.max(
+          this.camera.lowerRadiusLimit || 1.2,
+          Math.min(this.camera.upperRadiusLimit || 360, this.camera.radius + zoomDelta)
+        );
+      }
+    });
+
+    window.addEventListener('pointerup', (e) => {
       this.isUserDragging = false;
+      if (e.button === 2) {
+        this.isRmbDown = false;
+      }
     });
 
     window.addEventListener('keydown', (e) => {
@@ -60,50 +125,44 @@ export class CameraController {
 
     // Unrestricted, silky-smooth view angles and proportional zoom/pan
     this.camera.lowerBetaLimit = 0.05;
-    this.camera.upperBetaLimit = Math.PI / 2.08;
+    this.camera.upperBetaLimit = Math.PI / 2.06;
     this.camera.lowerRadiusLimit = 1.2;
     this.camera.upperRadiusLimit = 360;
-    this.camera.wheelDeltaPercentage = 0.05; // Proportional 5% zoom per scroll notch at any distance!
+    this.camera.wheelDeltaPercentage = 0.05;
     this.camera.wheelPrecision = 15;
-    this.camera.inertia = 0.84;
+    this.camera.inertia = 0.82;
     this.camera.angularSensibilityX = 950;
     this.camera.angularSensibilityY = 950;
     this.camera.panningSensibility = 80;
-    this.camera.panningAxis = new Vector3(1, 0.2, 1); // Smooth horizontal course-plane panning
+    this.camera.panningAxis = new Vector3(1, 0.2, 1);
   }
 
   public setMode(mode: CameraMode) {
     this.mode = mode;
 
+    // Keep LMB (0) for Orbit and MMB (1) for Pan across all modes; RMB (2) is handled by our Pan & Zoom handler
     const pointersInput = (this.camera.inputs?.attached?.pointers as any);
+    if (pointersInput) {
+      pointersInput.buttons = [0, 1];
+    }
 
     if (mode === 'designer') {
       this.camera.radius = 85;
       this.camera.beta = Math.PI / 3.2;
-      // Left-Click (0) = Orbit/Rotate scene view; Middle-Click (1) = Pan view;
-      // Right-Click (2) = Exclusively places items & sculpts on terrain!
-      if (pointersInput) {
-        pointersInput.buttons = [0, 1];
-      }
-    } else {
-      if (pointersInput) {
-        pointersInput.buttons = [0, 1, 2];
-      }
-      if (mode === 'aim') {
-        this.camera.radius = 2.4;
-        this.camera.beta = Math.PI / 2.42;
-      } else if (mode === 'green') {
-        this.camera.radius = 3.6;
-        this.camera.beta = Math.PI / 2.9;
-      } else if (mode === 'flight') {
-        this.camera.radius = 16.0;
-        this.camera.beta = Math.PI / 2.85;
-      }
+    } else if (mode === 'aim') {
+      this.camera.radius = 2.4;
+      this.camera.beta = Math.PI / 2.42;
+    } else if (mode === 'green') {
+      this.camera.radius = 3.6;
+      this.camera.beta = Math.PI / 2.9;
+    } else if (mode === 'flight') {
+      this.camera.radius = 16.0;
+      this.camera.beta = Math.PI / 2.85;
     }
   }
 
   public snapAimBehindBall(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, ballPos.y + 0.32, ballPos.z);
+    this.targetPosition.set(ballPos.x, ballPos.y + 0.35, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
@@ -113,7 +172,7 @@ export class CameraController {
   }
 
   public setAimHeading(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, ballPos.y + 0.32, ballPos.z);
+    this.targetPosition.set(ballPos.x, ballPos.y + 0.35, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
@@ -142,23 +201,20 @@ export class CameraController {
   }
 
   /**
-   * Keeps camera navigation effortless at all zoom distances:
-   * - Dynamically scales panning and zoom speed with camera radius
-   * - Supports smooth WASD / Arrow ground gliding in Designer & Scout modes
-   * - Smoothly prevents camera from clipping underground without locking rotation when zoomed out
+   * Prevents the camera from ever clipping through the terrain or backdrop hills
+   * when zooming/pulling backwards, orbiting low, or panning across valleys and bluffs.
+   * Called right before camera rendering so there is zero 1-frame or lerp lag.
    */
-  public enforceTerrainCollision(getTerrainElevation: (x: number, z: number) => number, dt = 0.016) {
+  public enforceTerrainCollision(getWorldElevation: (x: number, z: number) => number, dt = 0.016) {
     const r = Math.max(1.2, this.camera.radius);
 
-    // 1. Scale panning and wheel sensitivity dynamically with zoom distance
-    // When zoomed out 150m, panning & zooming move fast and effortlessly; when zoomed in 2m, ultra-precise!
+    // 1. Dynamically scale MMB panning and wheel sensitivity with zoom distance
     this.camera.panningSensibility = Math.max(5, 850 / r);
     this.camera.wheelPrecision = Math.max(0.8, 36 / Math.pow(r, 0.65));
 
     // 2. Smooth WASD / Arrow key course gliding in Designer and Scout modes
     if (this.mode === 'designer' || this.mode === 'scout') {
       const moveSpeed = Math.max(18, r * 0.75) * dt;
-      // Forward vector in XZ plane from camera.alpha
       const forwardX = -Math.cos(this.camera.alpha);
       const forwardZ = -Math.sin(this.camera.alpha);
       const rightX = Math.sin(this.camera.alpha);
@@ -185,39 +241,87 @@ export class CameraController {
 
       if (moveX !== 0 || moveZ !== 0) {
         const len = Math.sqrt(moveX * moveX + moveZ * moveZ) || 1;
-        this.camera.target.x = Math.max(-20, Math.min(240, this.camera.target.x + (moveX / len) * moveSpeed));
-        this.camera.target.z = Math.max(-20, Math.min(480, this.camera.target.z + (moveZ / len) * moveSpeed));
+        this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + (moveX / len) * moveSpeed));
+        this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + (moveZ / len) * moveSpeed));
       }
 
-      // Gently keep target height tracking terrain surface so rotating at any distance pivots naturally on the course
-      const targetGround = getTerrainElevation(this.camera.target.x, this.camera.target.z);
-      this.camera.target.y = this.camera.target.y * 0.88 + (targetGround + 0.5) * 0.12;
+      const targetGround = getWorldElevation(this.camera.target.x, this.camera.target.z);
+      this.camera.target.y = Math.max(
+        targetGround + 0.35,
+        this.camera.target.y * 0.85 + (targetGround + 0.6) * 0.15
+      );
     }
 
-    // 3. Smooth Ground Clearance without locking rotation when zoomed out
-    const camPos = this.camera.position;
-    const groundY = getTerrainElevation(camPos.x, camPos.z);
-    const minSafeCamY = groundY + 0.45;
-
-    const targetY = this.camera.target.y;
-    const dy = minSafeCamY - targetY;
-    const cosBetaReq = dy / r;
-
-    let maxAllowedBeta = Math.PI / 2.04; // ~88 degrees
-    if (cosBetaReq >= -0.98 && cosBetaReq <= 0.98) {
-      maxAllowedBeta = Math.acos(cosBetaReq) - 0.015;
+    // 3. Ensure target itself never sinks below local terrain
+    const targetGroundY = getWorldElevation(this.camera.target.x, this.camera.target.z);
+    if (this.camera.target.y < targetGroundY + 0.25) {
+      this.camera.target.y = targetGroundY + 0.25;
     }
 
-    const clampedUpperBeta = Math.max(0.25, Math.min(Math.PI / 2.04, maxAllowedBeta));
-    this.camera.upperBetaLimit = this.camera.upperBetaLimit * 0.8 + clampedUpperBeta * 0.2;
+    // 4. Exact, zero-lag frustum & ray terrain collision check
+    const sinBeta = Math.sin(this.camera.beta);
+    const cosAlpha = Math.cos(this.camera.alpha);
+    const sinAlpha = Math.sin(this.camera.alpha);
 
-    if (this.camera.beta > this.camera.upperBetaLimit) {
-      this.camera.beta = this.camera.upperBetaLimit;
+    const camX = this.camera.target.x + r * sinBeta * cosAlpha;
+    const camZ = this.camera.target.z + r * sinBeta * sinAlpha;
+
+    // Sample a 5-point safety halo around the camera to protect the near clipping plane on slopes
+    const halo = Math.min(2.6, Math.max(0.8, r * 0.08));
+    const gCenter = getWorldElevation(camX, camZ);
+    const gEast = getWorldElevation(camX + halo, camZ);
+    const gWest = getWorldElevation(camX - halo, camZ);
+    const gNorth = getWorldElevation(camX, camZ + halo);
+    const gSouth = getWorldElevation(camX, camZ - halo);
+    const maxCamGround = Math.max(gCenter, gEast, gWest, gNorth, gSouth);
+
+    const clearance = Math.max(1.15, Math.min(3.2, r * 0.035));
+    let requiredCamY = maxCamGround + clearance;
+
+    // Also sample intermediate points along the ray from target to camera so backing behind a ridge/lip never clips
+    const rayFractions = [0.45, 0.72, 0.88];
+    for (const f of rayFractions) {
+      const rx = this.camera.target.x + (camX - this.camera.target.x) * f;
+      const rz = this.camera.target.z + (camZ - this.camera.target.z) * f;
+      const rg = getWorldElevation(rx, rz) + 0.65;
+      // For ray height at fraction f to be >= rg: target.y + f * (camY - target.y) >= rg
+      const neededCamY = this.camera.target.y + (rg - this.camera.target.y) / f;
+      if (neededCamY > requiredCamY) {
+        requiredCamY = neededCamY;
+      }
     }
 
-    const targetGroundY = getTerrainElevation(this.camera.target.x, this.camera.target.z);
-    if (this.camera.target.y < targetGroundY + 0.15) {
-      this.camera.target.y = targetGroundY + 0.15;
+    const currentCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
+
+    if (currentCamY < requiredCamY) {
+      const dyNeeded = requiredCamY - this.camera.target.y;
+      const minBeta = 0.22; // Keep at least ~12.5 deg angle from vertical so view never flips
+      const maxRiseFromBeta = r * Math.cos(minBeta);
+
+      if (dyNeeded <= maxRiseFromBeta) {
+        const cosReq = Math.max(-0.99, Math.min(0.99, dyNeeded / r));
+        const safeBeta = Math.max(minBeta, Math.acos(cosReq));
+        if (this.camera.beta > safeBeta) {
+          this.camera.beta = safeBeta;
+        }
+        this.camera.upperBetaLimit = Math.max(minBeta, Math.min(Math.PI / 2.04, safeBeta));
+      } else {
+        // Camera is close to a taller hill behind it: tilt up to minBeta and lift target.y so camera stays above hill
+        this.camera.beta = minBeta;
+        this.camera.upperBetaLimit = minBeta;
+        this.camera.target.y = requiredCamY - maxRiseFromBeta;
+      }
+    } else {
+      // Smoothly relax upperBetaLimit when high above ground
+      const dySafe = requiredCamY - this.camera.target.y;
+      let maxAllowedBeta = Math.PI / 2.04;
+      if (dySafe / r >= -0.98 && dySafe / r <= 0.98) {
+        maxAllowedBeta = Math.max(0.25, Math.min(Math.PI / 2.04, Math.acos(dySafe / r)));
+      }
+      this.camera.upperBetaLimit = this.camera.upperBetaLimit * 0.85 + maxAllowedBeta * 0.15;
+      if (this.camera.beta > this.camera.upperBetaLimit) {
+        this.camera.beta = this.camera.upperBetaLimit;
+      }
     }
   }
 
@@ -226,16 +330,16 @@ export class CameraController {
     const midZ = (ballPos.z + pinPos.z) * 0.5;
     const dist = Math.sqrt(Math.pow(pinPos.x - ballPos.x, 2) + Math.pow(pinPos.z - ballPos.z, 2));
 
-    this.camera.target.set(midX, 2.0, midZ);
+    this.camera.target.set(midX, 3.0, midZ);
     this.camera.radius = Math.min(220, dist * 0.85);
-    this.camera.beta = Math.PI / 3.5;
+    this.camera.beta = Math.PI / 3.4;
 
     const heading = Math.atan2(pinPos.x - ballPos.x, pinPos.z - ballPos.z);
     this.camera.alpha = -heading - Math.PI / 2;
   }
 
   public focusOnPin(pinPos: Vector3D) {
-    this.camera.target.set(pinPos.x, Math.max(0.3, pinPos.y + 0.2), pinPos.z);
+    this.camera.target.set(pinPos.x, Math.max(0.3, pinPos.y + 0.25), pinPos.z);
     this.camera.radius = 12;
     this.camera.beta = Math.PI / 2.9;
   }
