@@ -84,29 +84,13 @@ export class CameraController {
       const rightX = Math.sin(this.camera.alpha);
       const rightZ = -Math.cos(this.camera.alpha);
 
-      // Horizontal RMB drag pans left/right across the course
+      // Horizontal RMB drag pans left/right; Vertical RMB drag pans forward/backward ONLY (no zoom)
       const deltaX = -dx * rightX * panScale;
       const deltaZ = -dx * rightZ * panScale;
+      const forwardPan = dy * panScale;
 
-      if (e.ctrlKey || e.altKey) {
-        // Pure zoom when modifier held with RMB
-        this.camera.radius = Math.max(
-          this.camera.lowerRadiusLimit || 1.2,
-          Math.min(this.camera.upperRadiusLimit || 360, this.camera.radius + dy * r * 0.0065)
-        );
-      } else {
-        // Combined smooth course pan + zoom when holding down RMB and dragging
-        const forwardPan = dy * panScale * 0.85;
-        this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + deltaX + forwardX * forwardPan));
-        this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + deltaZ + forwardZ * forwardPan));
-
-        // Pulling RMB backwards (dy > 0) also smoothly zooms out; pushing forwards zooms in
-        const zoomDelta = dy * r * 0.0038;
-        this.camera.radius = Math.max(
-          this.camera.lowerRadiusLimit || 1.2,
-          Math.min(this.camera.upperRadiusLimit || 360, this.camera.radius + zoomDelta)
-        );
-      }
+      this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + deltaX + forwardX * forwardPan));
+      this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + deltaZ + forwardZ * forwardPan));
     });
 
     window.addEventListener('pointerup', (e) => {

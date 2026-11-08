@@ -117,7 +117,7 @@ export class UIController {
           <span class="scale-info">1m x 1m Grid</span>
         </div>
         <div class="designer-controls-hint" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 6px 10px; margin: 0 12px 10px 12px; font-size: 11px; color: #a7f3d0; line-height: 1.4;">
-          <strong>LMB Hold:</strong> Orbit &nbsp;|&nbsp; <strong>RMB / MMB Hold:</strong> Pan &amp; Zoom<br/>
+          <strong>LMB Hold:</strong> Orbit &nbsp;|&nbsp; <strong>RMB / MMB Hold:</strong> Pan &nbsp;|&nbsp; <strong>Scroll:</strong> Zoom<br/>
           <strong>Click Terrain:</strong> Place / Sculpt &nbsp;|&nbsp; <strong>Shift + Drag:</strong> Paint Sculpt
         </div>
 

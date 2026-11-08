@@ -240,6 +240,7 @@ class FairwayStudioApp {
       if (
         m.name !== 'GolfTerrain' &&
         m.name !== 'BunkerSandPhotoOverlay' &&
+        m.name !== 'BunkerLipWallOverlay' &&
         m.name !== 'TeeBoxPhotoOverlay' &&
         m.name !== 'ProceduralBackdropMesh' &&
         m.name !== 'ApproachingStormSkybox' &&

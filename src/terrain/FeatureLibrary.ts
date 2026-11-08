@@ -86,71 +86,38 @@ export const PRESET_FEATURES: PresetFeature[] = [
     depthProfile: 0.5
   },
 
-  // FAIRWAYS
+  // FAIRWAYS (Complete Fixed AAA Sculpted Fairway Contours)
   {
-    id: 'fringe_collar_expansion',
-    name: 'Green Fringe Collar Strip',
-    category: 'fringe',
-    description: '4m wide manicured fringe collar around putting green',
-    icon: '🟩',
-    surfaceType: SurfaceType.FRINGE,
-    width: 28,
-    length: 36,
-    depthProfile: 0.1
-  },
-  {
-    id: 'first_cut_swath',
-    name: 'First Cut Swath',
-    category: 'first_cut',
-    description: 'Intermediate playable rough strip bordering fairways',
-    icon: '🌾',
-    surfaceType: SurfaceType.FIRST_CUT,
-    width: 44,
-    length: 120,
-    depthProfile: 0.0
-  },
-  {
-    id: 'fairway_landing_straight',
-    name: 'Straight Fairway Strip',
+    id: 'fairway_dogleg_right',
+    name: 'AAA Dogleg-Right Fairway',
     category: 'fairway',
-    description: '35m wide x 110m long pristine mowed fairway landing zone',
-    icon: '🛣️',
+    description: 'Complete sculpted AAA dogleg-right fairway with organic landing zones & first cut',
+    icon: '↪️',
     surfaceType: SurfaceType.FAIRWAY,
-    width: 35,
-    length: 110,
+    width: 38,
+    length: 240,
     depthProfile: 0.0
   },
   {
     id: 'fairway_dogleg_left',
-    name: 'Dogleg Left Fairway',
+    name: 'AAA Dogleg-Left Fairway',
     category: 'fairway',
-    description: 'Curved fairway contouring around a left hazard',
+    description: 'Complete sculpted AAA dogleg-left fairway with organic landing zones & first cut',
     icon: '↩️',
     surfaceType: SurfaceType.FAIRWAY,
     width: 38,
-    length: 120,
+    length: 240,
     depthProfile: 0.0
   },
   {
-    id: 'fairway_dogleg_right',
-    name: 'Dogleg Right Fairway',
+    id: 'fairway_landing_straight',
+    name: 'AAA Championship Fairway',
     category: 'fairway',
-    description: 'Curved fairway contouring around a right hazard',
-    icon: '↪️',
+    description: 'Complete sculpted AAA championship fairway with rounded walk-on & approach apron',
+    icon: '🛣️',
     surfaceType: SurfaceType.FAIRWAY,
-    width: 38,
-    length: 120,
-    depthProfile: 0.0
-  },
-  {
-    id: 'fairway_approach',
-    name: 'Green Approach',
-    category: 'fairway',
-    description: 'Narrowed fairway leading up to the putting surface',
-    icon: '🎯',
-    surfaceType: SurfaceType.FAIRWAY,
-    width: 28,
-    length: 50,
+    width: 36,
+    length: 220,
     depthProfile: 0.0
   },
 

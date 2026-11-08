@@ -3,6 +3,7 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
+  Material,
   Color3,
   DynamicTexture,
   Texture
@@ -41,6 +42,7 @@ export class TerrainGrid {
 
   public terrainMesh: Mesh | null = null;
   public bunkerSandOverlayMesh: Mesh | null = null;
+  public bunkerLipWallMesh: Mesh | null = null;
   public teeBoxOverlayMesh: Mesh | null = null;
   public splatTexture: DynamicTexture | null = null;
   public stampedFeatures: StampedFeatureRecord[] = [];
@@ -53,10 +55,9 @@ export class TerrainGrid {
   private indices: Uint32Array;
 
   private static patternTiles: Record<string, HTMLCanvasElement> | null = null;
-  private static bunkerSandImg: HTMLImageElement | null = null;
-  private static shortGrassImg: HTMLImageElement | null = null;
 
   private matBunkerSandOverlay!: StandardMaterial;
+  private matBunkerLipWall!: StandardMaterial;
   private matTeeBoxOverlay!: StandardMaterial;
 
   constructor(scene: Scene, width = GOLF_CONSTANTS.DEFAULT_MAP_WIDTH, length = GOLF_CONSTANTS.DEFAULT_MAP_LENGTH) {
@@ -83,66 +84,169 @@ export class TerrainGrid {
   }
 
   private initHighResPhotoMaterials() {
-    // 1. High-Res 2048x2048 Bunker Sand Material (bunker_sand_01.jpg)
-    const sandTex = new Texture(
-      '/textures/bunker_sand_01.jpg',
-      this.scene,
-      false,
-      false,
-      Texture.TRILINEAR_SAMPLINGMODE
-    );
-    sandTex.wrapU = Texture.WRAP_ADDRESSMODE;
-    sandTex.wrapV = Texture.WRAP_ADDRESSMODE;
-    sandTex.anisotropicFilteringLevel = 16;
+    /**
+     * Converts a 2048x2048 photo into a 1024x1024 flat-field equalized, 100% seamless texture.
+     * Uses a 2-pass separable sliding-window box filter (radius R) to remove all low-frequency
+     * blotches, internal sub-tile patches, and edge illumination gradients while preserving 100%
+     * of the fine photographic grass blades and fine quartz sand grains.
+     */
+    const createSeamlessPhotoTexture = (
+      url: string,
+      name: string,
+      kernelRadius: number,
+      detailGain: number
+    ): DynamicTexture => {
+      const size = 1024;
+      const dynTex = new DynamicTexture(name, size, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
+      dynTex.wrapU = Texture.WRAP_ADDRESSMODE;
+      dynTex.wrapV = Texture.WRAP_ADDRESSMODE;
+      dynTex.anisotropicFilteringLevel = 16;
 
-    const turfNormal = RealisticTextures.createSeamlessTurfNormalTexture(this.scene);
-    turfNormal.uScale = 4;
-    turfNormal.vScale = 4;
-    turfNormal.level = 0.45;
+      const img = new Image();
+      img.src = url;
+      img.onload = () => {
+        const ctx = dynTex.getContext() as CanvasRenderingContext2D;
+        ctx.drawImage(img, 0, 0, size, size);
+
+        const imgData = ctx.getImageData(0, 0, size, size);
+        const src = imgData.data;
+        const numPixels = size * size;
+
+        // Compute global mean RGB
+        let sumR = 0, sumG = 0, sumB = 0;
+        for (let i = 0; i < numPixels * 4; i += 4) {
+          sumR += src[i];
+          sumG += src[i + 1];
+          sumB += src[i + 2];
+        }
+        const meanR = sumR / numPixels;
+        const meanG = sumG / numPixels;
+        const meanB = sumB / numPixels;
+
+        // Pass 1: Horizontal toroidal sliding-window average
+        const R = kernelRadius;
+        const winSize = 2 * R + 1;
+        const hBlur = new Float32Array(numPixels * 3);
+
+        for (let y = 0; y < size; y++) {
+          const rowOff = y * size;
+          let rAcc = 0, gAcc = 0, bAcc = 0;
+          for (let dx = -R; dx <= R; dx++) {
+            const wx = (dx + size) & (size - 1);
+            const p = (rowOff + wx) * 4;
+            rAcc += src[p];
+            gAcc += src[p + 1];
+            bAcc += src[p + 2];
+          }
+          for (let x = 0; x < size; x++) {
+            const outIdx = (rowOff + x) * 3;
+            hBlur[outIdx] = rAcc / winSize;
+            hBlur[outIdx + 1] = gAcc / winSize;
+            hBlur[outIdx + 2] = bAcc / winSize;
+
+            const xSub = (x - R + size) & (size - 1);
+            const xAdd = (x + R + 1) & (size - 1);
+            const pSub = (rowOff + xSub) * 4;
+            const pAdd = (rowOff + xAdd) * 4;
+            rAcc += src[pAdd] - src[pSub];
+            gAcc += src[pAdd + 1] - src[pSub + 1];
+            bAcc += src[pAdd + 2] - src[pSub + 2];
+          }
+        }
+
+        // Pass 2: Vertical toroidal sliding-window average + High-Pass Flat-Field reconstruction
+        const eq = new Uint8ClampedArray(numPixels * 4);
+        for (let x = 0; x < size; x++) {
+          let rAcc = 0, gAcc = 0, bAcc = 0;
+          for (let dy = -R; dy <= R; dy++) {
+            const wy = (dy + size) & (size - 1);
+            const p = (wy * size + x) * 3;
+            rAcc += hBlur[p];
+            gAcc += hBlur[p + 1];
+            bAcc += hBlur[p + 2];
+          }
+          for (let y = 0; y < size; y++) {
+            const pIdx = (y * size + x) * 4;
+            const locR = rAcc / winSize;
+            const locG = gAcc / winSize;
+            const locB = bAcc / winSize;
+
+            eq[pIdx] = Math.max(0, Math.min(255, Math.round(meanR + (src[pIdx] - locR) * detailGain)));
+            eq[pIdx + 1] = Math.max(0, Math.min(255, Math.round(meanG + (src[pIdx + 1] - locG) * detailGain)));
+            eq[pIdx + 2] = Math.max(0, Math.min(255, Math.round(meanB + (src[pIdx + 2] - locB) * detailGain)));
+            eq[pIdx + 3] = 255;
+
+            const ySub = (y - R + size) & (size - 1);
+            const yAdd = (y + R + 1) & (size - 1);
+            const pSub = (ySub * size + x) * 3;
+            const pAdd = (yAdd * size + x) * 3;
+            rAcc += hBlur[pAdd] - hBlur[pSub];
+            gAcc += hBlur[pAdd + 1] - hBlur[pSub + 1];
+            bAcc += hBlur[pAdd + 2] - hBlur[pSub + 2];
+          }
+        }
+
+        // Pass 3: Tight 28-pixel toroidal border cross-fade so wrap boundaries are 100% seamless
+        const border = 28;
+        const half = size >> 1;
+        for (let y = 0; y < size; y++) {
+          const dy = Math.min(y, size - 1 - y);
+          for (let x = 0; x < size; x++) {
+            const dx = Math.min(x, size - 1 - x);
+            const edgeDist = Math.min(dx, dy);
+            const idx = (y * size + x) * 4;
+            if (edgeDist < border) {
+              const t = edgeDist / border;
+              const w = 0.5 * (1.0 - Math.cos(t * Math.PI));
+              const sx = (x + half) & (size - 1);
+              const sy = (y + half) & (size - 1);
+              const sIdx = (sy * size + sx) * 4;
+              src[idx] = Math.round(eq[idx] * w + eq[sIdx] * (1.0 - w));
+              src[idx + 1] = Math.round(eq[idx + 1] * w + eq[sIdx + 1] * (1.0 - w));
+              src[idx + 2] = Math.round(eq[idx + 2] * w + eq[sIdx + 2] * (1.0 - w));
+            } else {
+              src[idx] = eq[idx];
+              src[idx + 1] = eq[idx + 1];
+              src[idx + 2] = eq[idx + 2];
+            }
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        dynTex.update(false);
+      };
+      return dynTex;
+    };
+
+    // 1. High-Res Seamless Bunker Sand Material (bunker_sand_01.jpg)
+    const sandTex = createSeamlessPhotoTexture('/textures/bunker_sand_01.jpg', 'seamlessBunkerSandPhoto', 12, 0.62);
 
     this.matBunkerSandOverlay = new StandardMaterial('matBunkerSandPhoto', this.scene);
     this.matBunkerSandOverlay.diffuseTexture = sandTex;
-    this.matBunkerSandOverlay.bumpTexture = turfNormal;
-    this.matBunkerSandOverlay.specularColor = new Color3(0.08, 0.07, 0.05);
-    this.matBunkerSandOverlay.specularPower = 32;
+    this.matBunkerSandOverlay.specularColor = new Color3(0.05, 0.05, 0.04);
+    this.matBunkerSandOverlay.specularPower = 64;
+    this.matBunkerSandOverlay.backFaceCulling = false;
     this.matBunkerSandOverlay.zOffset = -2;
 
-    // 2. High-Res 2048x2048 Inside Tee Box Turf Material (short_grass_01.jpg)
-    const teeGrassTex = new Texture(
-      '/textures/short_grass_01.jpg',
-      this.scene,
-      false,
-      false,
-      Texture.TRILINEAR_SAMPLINGMODE
-    );
-    teeGrassTex.wrapU = Texture.WRAP_ADDRESSMODE;
-    teeGrassTex.wrapV = Texture.WRAP_ADDRESSMODE;
-    teeGrassTex.anisotropicFilteringLevel = 16;
+    // 2. High-Res Seamless Inside Tee Box Turf Material (short_grass_01.jpg)
+    const teeGrassTex = createSeamlessPhotoTexture('/textures/short_grass_01.jpg', 'seamlessTeeGrassPhoto', 10, 0.72);
+
+    // 3. Smooth 3D Bunker Revetted Sod Wall & Overhanging Turf Lip Material
+    this.matBunkerLipWall = new StandardMaterial('matBunkerLipWall', this.scene);
+    this.matBunkerLipWall.diffuseTexture = teeGrassTex;
+    this.matBunkerLipWall.specularColor = new Color3(0.04, 0.05, 0.03);
+    this.matBunkerLipWall.specularPower = 48;
+    this.matBunkerLipWall.backFaceCulling = false;
+    this.matBunkerLipWall.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    this.matBunkerLipWall.zOffset = -3;
 
     this.matTeeBoxOverlay = new StandardMaterial('matTeeBoxPhoto', this.scene);
     this.matTeeBoxOverlay.diffuseTexture = teeGrassTex;
-    this.matTeeBoxOverlay.bumpTexture = turfNormal;
-    this.matTeeBoxOverlay.specularColor = new Color3(0.06, 0.08, 0.05);
-    this.matTeeBoxOverlay.specularPower = 48;
+    this.matTeeBoxOverlay.specularColor = new Color3(0.05, 0.06, 0.04);
+    this.matTeeBoxOverlay.specularPower = 64;
+    this.matTeeBoxOverlay.backFaceCulling = false;
+    this.matTeeBoxOverlay.transparencyMode = Material.MATERIAL_ALPHABLEND;
     this.matTeeBoxOverlay.zOffset = -2;
-
-    // Also load HTMLImageElements for 2048x4096 Splat Canvas pattern filling
-    if (!TerrainGrid.bunkerSandImg) {
-      const imgSand = new Image();
-      imgSand.src = '/textures/bunker_sand_01.jpg';
-      imgSand.onload = () => {
-        TerrainGrid.bunkerSandImg = imgSand;
-        this.redrawSplatTexture();
-      };
-    }
-    if (!TerrainGrid.shortGrassImg) {
-      const imgGrass = new Image();
-      imgGrass.src = '/textures/short_grass_01.jpg';
-      imgGrass.onload = () => {
-        TerrainGrid.shortGrassImg = imgGrass;
-        this.redrawSplatTexture();
-      };
-    }
   }
 
   private ensurePatternTiles() {
@@ -159,30 +263,45 @@ export class TerrainGrid {
     }
   }
 
+  /**
+   * Evaluates the kidney shape factor k(theta) for angle theta in [0, 2*PI).
+   * Produces a classic curved kidney / bean bunker silhouette with a concave bay at theta = +PI/2.
+   */
+  public static kidneyRadiusFactor(theta: number): number {
+    return 1.0 - 0.22 * Math.sin(theta) + 0.12 * Math.cos(2.0 * theta);
+  }
+
+  /**
+   * Computes normalized kidney distance for a local point (localX, localZ) relative to (halfW, halfL).
+   */
+  public static computeKidneyDist(localX: number, localZ: number, halfW: number, halfL: number): { dist: number; theta: number } {
+    const nx = localX / Math.max(1, halfW);
+    const nz = localZ / Math.max(1, halfL);
+    const rEll = Math.sqrt(nx * nx + nz * nz);
+    const theta = Math.atan2(nz, nx);
+    const k = TerrainGrid.kidneyRadiusFactor(theta);
+    return { dist: rEll / Math.max(0.35, k), theta };
+  }
+
   private initStaticIndexAndUVBuffers() {
+    const cols = this.cols;
     for (let z = 0; z < this.rows; z++) {
       for (let x = 0; x < this.cols; x++) {
-        const vIdx = z * this.cols + x;
+        const vIdx = z * cols + x;
         this.positions[vIdx * 3] = x;
         this.positions[vIdx * 3 + 2] = z;
-
         this.uvs[vIdx * 2] = x / this.width;
         this.uvs[vIdx * 2 + 1] = z / this.length;
-
-        this.colors[vIdx * 4] = 1.0;
-        this.colors[vIdx * 4 + 1] = 1.0;
-        this.colors[vIdx * 4 + 2] = 1.0;
-        this.colors[vIdx * 4 + 3] = 1.0;
       }
     }
 
     let iIdx = 0;
     for (let z = 0; z < this.length; z++) {
       for (let x = 0; x < this.width; x++) {
-        const idx00 = z * this.cols + x;
-        const idx10 = z * this.cols + (x + 1);
-        const idx01 = (z + 1) * this.cols + x;
-        const idx11 = (z + 1) * this.cols + (x + 1);
+        const idx00 = z * cols + x;
+        const idx10 = z * cols + (x + 1);
+        const idx01 = (z + 1) * cols + x;
+        const idx11 = (z + 1) * cols + (x + 1);
 
         this.indices[iIdx++] = idx00;
         this.indices[iIdx++] = idx01;
@@ -196,106 +315,76 @@ export class TerrainGrid {
   }
 
   /**
-   * Championship Hole Elevation Topology:
-   * 1. High Elevated Tee Bluff around Z=40 (~6.5m base hill, +1.3m tee box = ~7.8m total)
-   * 2. Fairway descending into a scenic small valley (Z=140..270 at ~2.0m..2.3m)
-   * 3. Green pocket at (X=148, Z=360) sitting slightly lower (~1.25m) than the approach fairway (~2.3m)
+   * Generates the natural topography for Hole 1 (Dogleg-Right Valley Hole):
+   * - Elevated Tee Bluff around (X=95, Z=42) (~6.8m bluff + 1.3m tee pad = ~8.1m)
+   * - Sweeping descent from the tee down into a small valley corridor (~2.0m-2.2m) bending right
+   * - Green pocket at (X=148, Z=360) sitting slightly lower (~1.25m) than the approach fairway (~2.2m)
    */
-  private generateInitialNaturalTerrain() {
+  public generateInitialNaturalTerrain() {
     for (let z = 0; z < this.rows; z++) {
       for (let x = 0; x < this.cols; x++) {
         const idx = z * this.cols + x;
-        this.surfaceTypes[idx] = SurfaceType.ROUGH;
 
-        // 1. Elevated Tee Hill at start of hole (Z = 0..95)
-        const teeSlopeT = Math.max(0, Math.min(1, (95 - z) / 60));
-        const teeHill = teeSlopeT * teeSlopeT * (3 - 2 * teeSlopeT) * 4.6;
-
-        // 2. Valley corridor center X following the Dogleg-Right curve
-        const zNorm = Math.max(0, Math.min(1, (z - 80) / 280));
-        const corridorCenterX = 96 + Math.pow(zNorm, 1.85) * 52; // Curves from X=96 to X=148
-        const distFromCorridor = Math.abs(x - corridorCenterX);
-
-        // Gentle valley walls rising outside the fairway corridor
-        const valleyWallT = Math.max(0, Math.min(1, (distFromCorridor - 22) / 55));
-        const valleyWallLift = valleyWallT * valleyWallT * 3.8;
-
-        // 3. Longitudinal elevation along valley:
-        // Valley floor sits around 2.1m..2.4m in the landing/approach zone (Z=130..315),
-        // then steps gently DOWN into the putting green amphitheater at Z=360 (~1.25m)!
-        let valleyBaseY = 2.2;
-        if (z > 310) {
-          const greenDropT = Math.max(0, Math.min(1, (z - 310) / 38));
-          const smoothDrop = greenDropT * greenDropT * (3 - 2 * greenDropT);
-          valleyBaseY = 2.2 - smoothDrop * 0.95; // Green sits ~0.95m lower than approach fairway!
+        let doglegCenterX = 95;
+        if (z > 60 && z <= 210) {
+          const t = (z - 60) / 150;
+          doglegCenterX = 95 + t * t * 14;
+        } else if (z > 210) {
+          const t = Math.min(1.0, (z - 210) / 160);
+          doglegCenterX = 109 + (3 * t * t - 2 * t * t * t) * 41;
         }
 
-        // Subtle natural organic rolling waves in the rough outside the green
-        const distToGreen = Math.sqrt(Math.pow(x - 148, 2) + Math.pow(z - 360, 2));
-        const greenFlatMask = Math.max(0, Math.min(1, (distToGreen - 20) / 18));
-        const wave =
-          (Math.sin(x * 0.04) * Math.cos(z * 0.03) * 0.65 +
-            Math.sin(x * 0.08 + 1.1) * Math.sin(z * 0.06) * 0.25) *
-          greenFlatMask;
+        const distFromCorridor = Math.abs(x - doglegCenterX);
 
-        this.heights[idx] = Math.max(0.2, valleyBaseY + teeHill + valleyWallLift + wave);
+        // 1. Elevated Tee Bluff around (95, 42)
+        const dxTee = (x - 95) / 42;
+        const dzTee = (z - 38) / 40;
+        const teeBluff = 4.6 * Math.exp(-(dxTee * dxTee + dzTee * dzTee));
+
+        // 2. Valley floor profile along Z
+        const valleyDip = -0.65 * Math.exp(-Math.pow((z - 195) / 85, 2));
+
+        // 3. Lower Putting Green pocket around (148, 360)
+        const dxGreen = (x - 148) / 28;
+        const dzGreen = (z - 360) / 30;
+        const greenPocket = -0.95 * Math.exp(-(dxGreen * dxGreen + dzGreen * dzGreen));
+
+        // 4. Gentle framing valley hills outside the playable dogleg corridor
+        const corridorMargin = Math.max(0, distFromCorridor - 26);
+        const valleyWalls =
+          Math.pow(corridorMargin / 46, 1.8) * 3.8 +
+          Math.sin(x * 0.04) * Math.cos(z * 0.03) * 0.35 * Math.min(1.0, corridorMargin / 20);
+
+        const microRoll = Math.sin(x * 0.025 + 0.5) * Math.cos(z * 0.022) * 0.14;
+
+        let h = 2.2 + teeBluff + valleyDip + greenPocket + valleyWalls + microRoll;
+
+        const edgeDistX = Math.min(x, this.width - x);
+        const edgeDistZ = Math.min(z, this.length - z);
+        const edgeDist = Math.min(edgeDistX, edgeDistZ);
+        if (edgeDist < 18) {
+          const t = edgeDist / 18;
+          const smoothT = t * t * (3 - 2 * t);
+          h = 2.2 * (1 - smoothT) + h * smoothT;
+        }
+
+        this.heights[idx] = h;
+        this.surfaceTypes[idx] = SurfaceType.ROUGH;
       }
     }
   }
 
-  /**
-   * Analytical Kidney Bunker Contour Function
-   * Returns normalized distance R where R <= 1.0 is inside the kidney bean shape.
-   */
-  public static computeKidneyDist(localX: number, localZ: number, halfW: number, halfL: number): { dist: number; theta: number } {
-    const u = localX / Math.max(1, halfW);
-    const v = localZ / Math.max(1, halfL);
-
-    // Bend spine into a kidney bean curve
-    const uKidney = u - 0.36 * (v * v - 0.25);
-    const theta = Math.atan2(v, uKidney);
-
-    // Smooth organic multi-lobe modulation
-    const lobeScale = 1.0 + 0.09 * Math.sin(theta * 2.0 + 0.5) - 0.06 * Math.cos(theta * 3.0);
-    const rawR = Math.sqrt(uKidney * uKidney + v * v);
-
-    return { dist: rawR / lobeScale, theta };
-  }
-
-  /**
-   * Traces the exact analytical kidney boundary for a given normalized radius R on a 2D Canvas
-   */
-  private traceKidneyPath(ctx: CanvasRenderingContext2D, halfW: number, halfL: number, radiusMultiplier: number) {
-    const steps = 96;
-    ctx.beginPath();
-    for (let i = 0; i <= steps; i++) {
-      const theta = (i / steps) * Math.PI * 2;
-      const lobeScale = 1.0 + 0.09 * Math.sin(theta * 2.0 + 0.5) - 0.06 * Math.cos(theta * 3.0);
-      const r = radiusMultiplier * lobeScale;
-
-      const uKidney = r * Math.cos(theta);
-      const v = r * Math.sin(theta);
-      const u = uKidney + 0.36 * (v * v - 0.25);
-
-      const px = u * halfW;
-      const pz = v * halfL;
-      if (i === 0) ctx.moveTo(px, pz);
-      else ctx.lineTo(px, pz);
-    }
-    ctx.closePath();
-  }
-
   public getElevation(worldX: number, worldZ: number): number {
-    const x = Math.max(0, Math.min(this.width - 0.0001, worldX));
-    const z = Math.max(0, Math.min(this.length - 0.0001, worldZ));
+    const clampedX = Math.max(0, Math.min(this.width - 0.0001, worldX));
+    const clampedZ = Math.max(0, Math.min(this.length - 0.0001, worldZ));
 
-    const x0 = Math.floor(x);
+    const x0 = Math.floor(clampedX);
+    const z0 = Math.floor(clampedZ);
     const x1 = Math.min(this.cols - 1, x0 + 1);
-    const z0 = Math.floor(z);
     const z1 = Math.min(this.rows - 1, z0 + 1);
 
-    const fx = x - x0;
-    const fz = z - z0;
+    const fx = clampedX - x0;
+    const fz = clampedZ - z0;
 
     const h00 = this.heights[z0 * this.cols + x0];
     const h10 = this.heights[z0 * this.cols + x1];
@@ -388,9 +477,17 @@ export class TerrainGrid {
   }
 
   /**
-   * Evaluates a smooth 4-point cubic Bezier spine for a continuous Dogleg Fairway
+   * Evaluates a smooth 4-point cubic Bezier spine with organic AAA fairway width modulation
+   * and smooth parabolic rounded ends (zero circular stamp cutouts).
    */
-  private evaluateSpline(points: DoglegWaypoint[], t: number): { x: number; z: number; width: number; tx: number; tz: number } {
+  private evaluateSpline(points: DoglegWaypoint[], t: number): {
+    x: number;
+    z: number;
+    leftW: number;
+    rightW: number;
+    tx: number;
+    tz: number;
+  } {
     const p0 = points[0];
     const p1 = points[1];
     const p2 = points[2];
@@ -404,9 +501,29 @@ export class TerrainGrid {
 
     const x = b0 * p0.x + b1 * p1.x + b2 * p2.x + b3 * p3.x;
     const z = b0 * p0.z + b1 * p1.z + b2 * p2.z + b3 * p3.z;
-    const width = b0 * p0.width + b1 * p1.width + b2 * p2.width + b3 * p3.width;
+    const baseWidth = b0 * p0.width + b1 * p1.width + b2 * p2.width + b3 * p3.width;
 
-    // Derivative for tangent vector
+    // C1-continuous elliptical quadrant tapers at t=0 and t=1: sqrt(2u - u^2) has derivative 0 at u=1,
+    // guaranteeing a 100% smooth rounded fairway nose with ZERO sharp corners!
+    const uStart = Math.min(1.0, Math.max(0.0, t / 0.15));
+    const uEnd = Math.min(1.0, Math.max(0.0, (1.0 - t) / 0.15));
+    const startTaper = Math.sqrt(Math.max(0, 2.0 * uStart - uStart * uStart));
+    const endTaper = Math.sqrt(Math.max(0, 2.0 * uEnd - uEnd * uEnd));
+    const envelope = startTaper * endTaper;
+
+    // Authentic AAA PGA-style organic fairway contour (drive landing swell, dogleg pinch, approach bay)
+    const driveSwell = 0.16 * Math.exp(-Math.pow((t - 0.34) / 0.16, 2));
+    const doglegPinchRight = -0.18 * Math.exp(-Math.pow((t - 0.46) / 0.11, 2));
+    const outerElbowSwellLeft = 0.14 * Math.exp(-Math.pow((t - 0.58) / 0.15, 2));
+    const waterPinchRight = -0.16 * Math.exp(-Math.pow((t - 0.76) / 0.12, 2));
+    const approachLobe = 0.10 * Math.exp(-Math.pow((t - 0.84) / 0.10, 2));
+
+    const leftMod = 1.0 + driveSwell + outerElbowSwellLeft + 0.04 * Math.sin(t * Math.PI * 3.0);
+    const rightMod = 1.0 + driveSwell + doglegPinchRight + waterPinchRight + approachLobe;
+
+    const leftW = baseWidth * 0.5 * envelope * leftMod;
+    const rightW = baseWidth * 0.5 * envelope * rightMod;
+
     const d0 = -3 * u * u;
     const d1 = 3 * u * u - 6 * u * t;
     const d2 = 6 * u * t - 3 * t * t;
@@ -417,17 +534,16 @@ export class TerrainGrid {
     tx /= len;
     tz /= len;
 
-    return { x, z, width, tx, tz };
+    return { x, z, leftW, rightW, tx, tz };
   }
 
   /**
-   * Stamps a continuous, seamless Dogleg Fairway ribbon along a 4-point cubic Bezier spline
-   * (eliminating any "two joined ovals" appearance).
+   * Stamps a continuous, organic AAA Dogleg Fairway shape along a 4-point cubic Bezier spline.
    */
   public stampDoglegFairway(points: DoglegWaypoint[]) {
     if (points.length < 4) return;
 
-    const samples = 140;
+    const samples = 200;
     const spine = [];
     for (let i = 0; i <= samples; i++) {
       spine.push(this.evaluateSpline(points, i / samples));
@@ -437,12 +553,15 @@ export class TerrainGrid {
       for (let x = 0; x < this.cols; x++) {
         let minNormDist = 999;
 
-        for (let i = 0; i <= samples; i++) {
+        for (let i = 2; i < samples - 1; i++) {
           const sp = spine[i];
           const dx = x - sp.x;
           const dz = z - sp.z;
-          const halfW = sp.width * 0.5;
-          const d = Math.sqrt(dx * dx + dz * dz) / halfW;
+          // Project onto tangent (tx, tz) and left-normal (-tz, tx)
+          const lat = dx * (-sp.tz) + dz * sp.tx;
+          const lon = dx * sp.tx + dz * sp.tz;
+          const halfW = Math.max(1.5, lat >= 0 ? sp.leftW : sp.rightW);
+          const d = Math.sqrt((lat / halfW) * (lat / halfW) + (lon / (halfW * 1.2)) * (lon / (halfW * 1.2)));
           if (d < minNormDist) minNormDist = d;
         }
 
@@ -483,6 +602,25 @@ export class TerrainGrid {
     depthProfile: number = 0,
     lipHeight: number = 0
   ) {
+    // If stamping a Fairway preset, convert it into a sculpted 4-point AAA spline fairway
+    if (surfaceType === SurfaceType.FAIRWAY) {
+      const halfL = length * 0.5;
+      const cosR = Math.cos(rotationRad);
+      const sinR = Math.sin(rotationRad);
+      const makePt = (zOff: number, xCurve: number, wScale: number): DoglegWaypoint => ({
+        x: centerX + xCurve * cosR + zOff * sinR,
+        z: centerZ - xCurve * sinR + zOff * cosR,
+        width: width * wScale
+      });
+      this.stampDoglegFairway([
+        makePt(-halfL, 0, 0.78),
+        makePt(-halfL * 0.3, width * 0.12, 1.05),
+        makePt(halfL * 0.35, width * 0.22, 0.96),
+        makePt(halfL, width * 0.18, 0.82)
+      ]);
+      return;
+    }
+
     const effWidth = surfaceType === SurfaceType.BUNKER ? Math.max(12, width) : width;
     const effLength = surfaceType === SurfaceType.BUNKER ? Math.max(16, length) : length;
 
@@ -511,40 +649,22 @@ export class TerrainGrid {
         const idx = z * this.cols + x;
 
         if (surfaceType === SurfaceType.BUNKER) {
-          const { dist: kidneyDist, theta } = TerrainGrid.computeKidneyDist(localX, localZ, halfW, halfL);
+          const { dist: kidneyDist } = TerrainGrid.computeKidneyDist(localX, localZ, halfW, halfL);
 
-          if (kidneyDist <= 1.38) {
+          if (kidneyDist <= 1.18) {
             const effDepth = Math.min(-1.25, depthProfile || -1.35);
-            // Higher, sharper lip on the forward/target side of the bunker
-            const directionalLipBoost = 0.78 + 0.28 * Math.sin(theta);
-            const effLip = Math.max(0.55, lipHeight || 0.65) * directionalLipBoost;
-
-            if (kidneyDist <= 0.68) {
-              // Deep flat-bottomed concave sand bowl
-              const normR = kidneyDist / 0.68;
-              const bowlProfile = Math.cos(normR * Math.PI * 0.25);
+            // Depress the 1m terrain grid across the entire sand cavity & inner wall (kidneyDist <= 0.98)
+            // and blend back to natural ground under the raised lip mound (0.98..1.18) so the 1m grid never pokes through!
+            if (kidneyDist <= 0.98) {
+              const normR = kidneyDist / 0.98;
+              const bowlProfile = Math.cos(normR * Math.PI * 0.30);
               this.heights[idx] = baseElevation + effDepth * bowlProfile;
               this.surfaceTypes[idx] = SurfaceType.BUNKER;
-            } else if (kidneyDist <= 1.08) {
-              // Smoothly sculpted C2-continuous revetted sod wall spanning ~3m so 1m grid triangles never jag
-              const t = (kidneyDist - 0.68) / 0.40;
-              const smoothS = t * t * (3.0 - 2.0 * t);
-              const bowlEdge = Math.cos(Math.PI * 0.25);
-              this.heights[idx] = baseElevation + effDepth * bowlEdge * (1.0 - smoothS) + effLip * smoothS;
-              if (t < 0.42) {
-                this.surfaceTypes[idx] = SurfaceType.BUNKER;
-              } else if (this.surfaceTypes[idx] === SurfaceType.GREEN) {
-                this.surfaceTypes[idx] = SurfaceType.FRINGE;
-              }
             } else {
-              // Raised outer grassy bunker lip mound sloping back to fairway/rough
-              const t = (kidneyDist - 1.08) / 0.30;
-              const mound = 0.5 * (1.0 + Math.cos(Math.min(1.0, t) * Math.PI));
-              const lipTarget = baseElevation + effLip * mound;
-              this.heights[idx] = this.heights[idx] * (1 - mound * 0.85) + lipTarget * (mound * 0.85);
-              if (mound > 0.20 && this.surfaceTypes[idx] === SurfaceType.GREEN) {
-                this.surfaceTypes[idx] = SurfaceType.FRINGE;
-              }
+              const t = (kidneyDist - 0.98) / 0.20;
+              const smoothBlend = 0.5 * (1.0 - Math.cos(Math.min(1.0, t) * Math.PI));
+              const edgeDepth = effDepth * Math.cos(Math.PI * 0.30);
+              this.heights[idx] = (baseElevation + edgeDepth) * (1.0 - smoothBlend) + this.heights[idx] * smoothBlend;
             }
           }
           continue;
@@ -555,19 +675,12 @@ export class TerrainGrid {
           if (surfaceType === SurfaceType.GREEN) {
             if (normDist <= 1.0) {
               const blend = Math.cos(normDist * Math.PI * 0.5);
-              // Gentle readable two-way putting contour across the green
               const readableSlope = (localX / halfW) * 0.26 + (localZ / halfL) * 0.22;
               const targetGreenY = baseElevation + readableSlope;
               this.heights[idx] = this.heights[idx] * (1 - blend) + targetGreenY * blend;
               this.surfaceTypes[idx] = SurfaceType.GREEN;
             } else if (normDist <= 1.22 && this.surfaceTypes[idx] !== SurfaceType.BUNKER && this.surfaceTypes[idx] !== SurfaceType.WATER) {
               this.surfaceTypes[idx] = SurfaceType.FRINGE;
-            }
-          } else if (surfaceType === SurfaceType.FAIRWAY) {
-            if (normDist <= 1.0 && this.surfaceTypes[idx] !== SurfaceType.BUNKER && this.surfaceTypes[idx] !== SurfaceType.WATER) {
-              this.surfaceTypes[idx] = SurfaceType.FAIRWAY;
-            } else if (normDist <= 1.15 && this.surfaceTypes[idx] === SurfaceType.ROUGH) {
-              this.surfaceTypes[idx] = SurfaceType.FIRST_CUT;
             }
           } else if (surfaceType === SurfaceType.FRINGE) {
             if (normDist <= 1.0 && this.surfaceTypes[idx] !== SurfaceType.BUNKER) {
@@ -578,16 +691,15 @@ export class TerrainGrid {
               this.surfaceTypes[idx] = SurfaceType.FIRST_CUT;
             }
           } else if (surfaceType === SurfaceType.TEE) {
-            // Elevated flat championship tee platform with smooth sloped grassy banks (out to normDist 1.35)
             const liftHeight = Math.max(1.1, depthProfile || 1.2);
-            if (normDist <= 0.88) {
+            if (normDist <= 0.92) {
               this.heights[idx] = baseElevation + liftHeight;
               this.surfaceTypes[idx] = SurfaceType.TEE;
             } else if (normDist <= 1.35) {
-              const bankT = (normDist - 0.88) / 0.47;
+              const bankT = (normDist - 0.92) / 0.43;
               const smoothBank = 0.5 * (1 + Math.cos(bankT * Math.PI));
               this.heights[idx] = this.heights[idx] * (1 - smoothBank) + (baseElevation + liftHeight) * smoothBank;
-              if (normDist <= 1.0) {
+              if (normDist <= 1.02) {
                 this.surfaceTypes[idx] = SurfaceType.TEE;
               }
             }
@@ -647,7 +759,7 @@ export class TerrainGrid {
     const turfNormalTex = RealisticTextures.createSeamlessTurfNormalTexture(this.scene);
     turfNormalTex.uScale = 110;
     turfNormalTex.vScale = 230;
-    turfNormalTex.level = 0.62;
+    turfNormalTex.level = 0.55;
 
     const microDetailTex = RealisticTextures.createSeamlessMicroDetailTexture(this.scene);
     microDetailTex.uScale = 110;
@@ -657,7 +769,7 @@ export class TerrainGrid {
     mat.diffuseTexture = this.splatTexture;
     mat.ambientTexture = microDetailTex;
     mat.bumpTexture = turfNormalTex;
-    mat.specularColor = new Color3(0.06, 0.07, 0.05);
+    mat.specularColor = new Color3(0.05, 0.06, 0.04);
     mat.specularPower = 48;
     mat.backFaceCulling = false;
     mesh.material = mat;
@@ -680,7 +792,7 @@ export class TerrainGrid {
     const sX = canvasW / this.width;
     const sZ = canvasH / this.length;
 
-    const makeScaledPattern = (source: HTMLCanvasElement | HTMLImageElement, scale = 0.25): CanvasPattern => {
+    const makeScaledPattern = (source: HTMLCanvasElement, scale = 0.25): CanvasPattern => {
       const pat = ctx.createPattern(source, 'repeat')!;
       if (typeof DOMMatrix !== 'undefined' && pat.setTransform) {
         pat.setTransform(new DOMMatrix().scale(scale, scale));
@@ -694,15 +806,8 @@ export class TerrainGrid {
     const fringePattern = makeScaledPattern(tiles.fringe, 0.25);
     const greenPattern = makeScaledPattern(tiles.green, 0.25);
     const waterBedPattern = makeScaledPattern(tiles.water_bed, 0.25);
-
-    // Use the user's 2048x2048 bunker_sand_01.jpg and short_grass_01.jpg patterns!
-    const sandPattern = TerrainGrid.bunkerSandImg
-      ? makeScaledPattern(TerrainGrid.bunkerSandImg, 0.08)
-      : makeScaledPattern(tiles.sand, 0.22);
-
-    const teeGrassPattern = TerrainGrid.shortGrassImg
-      ? makeScaledPattern(TerrainGrid.shortGrassImg, 0.06)
-      : makeScaledPattern(tiles.green, 0.22);
+    const sandPattern = makeScaledPattern(tiles.sand, 0.20);
+    const teeGrassPattern = makeScaledPattern(tiles.green, 0.20);
 
     ctx.fillStyle = roughPattern;
     ctx.fillRect(0, 0, canvasW, canvasH);
@@ -740,6 +845,11 @@ export class TerrainGrid {
     this.splatTexture.update(false);
   }
 
+  /**
+   * Draws a continuous, organic AAA Dogleg Fairway shape on the course splat canvas.
+   * Uses parabolic envelope tapering at both ends so the fairway is a single organic contour
+   * (zero circular stamp additions or subtractions).
+   */
   private drawDoglegFairwayOnCanvas(
     ctx: CanvasRenderingContext2D,
     points: DoglegWaypoint[],
@@ -748,79 +858,58 @@ export class TerrainGrid {
     firstCutPattern: CanvasPattern,
     fairwayPattern: CanvasPattern
   ) {
-    const samples = 100;
-    const traceRibbon = (extraMarginMeters: number) => {
+    const samples = 260;
+
+    const traceOrganicFairwayOutline = () => {
       const leftPts: { x: number; z: number }[] = [];
       const rightPts: { x: number; z: number }[] = [];
 
       for (let i = 0; i <= samples; i++) {
-        const sp = this.evaluateSpline(points, i / samples);
-        const halfW = sp.width * 0.5 + extraMarginMeters;
-        // Normal to tangent (tx, tz) is (-tz, tx)
+        const t = i / samples;
+        const sp = this.evaluateSpline(points, t);
+
         const nx = -sp.tz;
         const nz = sp.tx;
 
-        leftPts.push({ x: (sp.x + nx * halfW) * sX, z: (sp.z + nz * halfW) * sZ });
-        rightPts.push({ x: (sp.x - nx * halfW) * sX, z: (sp.z - nz * halfW) * sZ });
+        leftPts.push({ x: (sp.x + nx * sp.leftW) * sX, z: (sp.z + nz * sp.leftW) * sZ });
+        rightPts.push({ x: (sp.x - nx * sp.rightW) * sX, z: (sp.z - nz * sp.rightW) * sZ });
       }
 
       ctx.beginPath();
-      // Start along left bank
       ctx.moveTo(leftPts[0].x, leftPts[0].z);
       for (let i = 1; i <= samples; i++) {
         ctx.lineTo(leftPts[i].x, leftPts[i].z);
       }
-
-      // Rounded end cap at green approach (t = 1)
-      const endSp = this.evaluateSpline(points, 1.0);
-      const endR = endSp.width * 0.5 + extraMarginMeters;
-      const endAngle = Math.atan2(endSp.tx, -endSp.tz);
-      for (let a = 1; a <= 18; a++) {
-        const ang = endAngle + (a / 18) * Math.PI;
-        const cx = (endSp.x + Math.cos(ang) * endR) * sX;
-        const cz = (endSp.z + Math.sin(ang) * endR) * sZ;
-        ctx.lineTo(cx, cz);
-      }
-
-      // Return along right bank
       for (let i = samples; i >= 0; i--) {
         ctx.lineTo(rightPts[i].x, rightPts[i].z);
       }
-
-      // Rounded start cap near tee landing (t = 0)
-      const startSp = this.evaluateSpline(points, 0.0);
-      const startR = startSp.width * 0.5 + extraMarginMeters;
-      const startAngle = Math.atan2(-startSp.tx, startSp.tz);
-      for (let a = 1; a <= 18; a++) {
-        const ang = startAngle + (a / 18) * Math.PI;
-        const cx = (startSp.x + Math.cos(ang) * startR) * sX;
-        const cz = (startSp.z + Math.sin(ang) * startR) * sZ;
-        ctx.lineTo(cx, cz);
-      }
-
       ctx.closePath();
     };
 
-    // 1. Continuous First Cut Collar (+3.8m wider)
-    traceRibbon(3.8);
+    // 1. Continuous First Cut Collar (+3.8m uniform parallel offset around the entire organic fairway contour)
+    ctx.save();
+    traceOrganicFairwayOutline();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3.8 * 2 * sX;
+    ctx.strokeStyle = firstCutPattern;
+    ctx.stroke();
     ctx.fillStyle = firstCutPattern;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(12, 32, 8, 0.28)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    ctx.restore();
 
-    // 2. Continuous Dogleg-Right Fairway Body
-    traceRibbon(0);
+    // 2. Continuous AAA Dogleg Fairway Body
+    traceOrganicFairwayOutline();
     ctx.fillStyle = fairwayPattern;
     ctx.fill();
 
-    // 3. Championship Mowing Stripes clipped cleanly inside the dogleg fairway
+    // 3. Championship Mowing Stripes clipped cleanly inside the organic fairway contour
     ctx.save();
-    traceRibbon(0);
+    traceOrganicFairwayOutline();
     ctx.clip();
 
     const stripeStep = 4.6 * sZ;
-    for (let z = 50 * sZ; z <= 360 * sZ; z += stripeStep * 2) {
+    for (let z = 45 * sZ; z <= 370 * sZ; z += stripeStep * 2) {
       ctx.fillStyle = 'rgba(225, 255, 180, 0.08)';
       ctx.fillRect(0, z, 220 * sX, stripeStep);
       ctx.fillStyle = 'rgba(10, 35, 8, 0.06)';
@@ -865,33 +954,7 @@ export class TerrainGrid {
     ctx.translate(cx, cz);
     ctx.rotate(feat.rotationRad);
 
-    if (feat.surfaceType === SurfaceType.FAIRWAY) {
-      const fcW = halfW + 3.5 * sX;
-      const fcL = halfL + 3.5 * sZ;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, fcW, fcL, 0, 0, Math.PI * 2);
-      ctx.fillStyle = patterns.firstCutPattern;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
-      ctx.fillStyle = patterns.fairwayPattern;
-      ctx.fill();
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
-      ctx.clip();
-
-      const stripeStep = 4.5 * sZ;
-      const numStripes = Math.ceil((halfL * 2) / stripeStep);
-      for (let i = -numStripes; i <= numStripes; i++) {
-        ctx.fillStyle = i % 2 === 0 ? 'rgba(220, 255, 175, 0.085)' : 'rgba(10, 35, 8, 0.065)';
-        ctx.fillRect(-halfW * 1.5, i * stripeStep, halfW * 3.0, stripeStep);
-      }
-      ctx.restore();
-
-    } else if (feat.surfaceType === SurfaceType.FIRST_CUT) {
+    if (feat.surfaceType === SurfaceType.FIRST_CUT) {
       ctx.beginPath();
       ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
       ctx.fillStyle = patterns.firstCutPattern;
@@ -934,56 +997,31 @@ export class TerrainGrid {
       ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.BUNKER) {
-      // Kidney-Shaped Bunker with Sharply Defined Turf Overhang Lip & Revetted Sod Wall
-      // 1. Outer raised grassy berm shadow halo (R = 1.18)
-      this.traceKidneyPath(ctx, halfW, halfL, 1.18);
-      ctx.fillStyle = 'rgba(14, 34, 10, 0.48)';
-      ctx.fill();
-
-      // 2. Crisp dark turf overhang rim (R = 1.08)
-      this.traceKidneyPath(ctx, halfW, halfL, 1.08);
-      ctx.fillStyle = '#1d3b14';
-      ctx.fill();
-
-      // 3. Steep revetted sod wall face (R = 1.03)
-      this.traceKidneyPath(ctx, halfW, halfL, 1.03);
-      ctx.fillStyle = '#54432a';
-      ctx.fill();
-
-      // 4. Inner dark under-lip shadow ring (R = 0.96)
-      this.traceKidneyPath(ctx, halfW, halfL, 0.96);
-      ctx.fillStyle = '#382b18';
-      ctx.fill();
-
-      // 5. Bright raked quartz sand bed (bunker_sand_01.jpg) inside the kidney bowl (R = 0.93)
-      this.traceKidneyPath(ctx, halfW, halfL, 0.93);
+      // Only fill the interior sand cavity on splatTexture; the 128-segment polar 3D meshes render the smooth lip & sand
+      ctx.beginPath();
+      for (let i = 0; i <= 96; i++) {
+        const theta = (i / 96) * Math.PI * 2;
+        const r = 0.90 * TerrainGrid.kidneyRadiusFactor(theta);
+        const px = Math.cos(theta) * halfW * r;
+        const pz = Math.sin(theta) * halfL * r;
+        if (i === 0) ctx.moveTo(px, pz);
+        else ctx.lineTo(px, pz);
+      }
+      ctx.closePath();
       ctx.fillStyle = patterns.sandPattern;
       ctx.fill();
 
-      // 6. Crisp inner lip drop-shadow gradient to accentuate the steep 3D lip
-      ctx.save();
-      this.traceKidneyPath(ctx, halfW, halfL, 0.93);
-      ctx.clip();
-      this.traceKidneyPath(ctx, halfW, halfL, 0.93);
-      ctx.strokeStyle = 'rgba(40, 28, 14, 0.72)';
-      ctx.lineWidth = 6.5;
-      ctx.stroke();
-      ctx.restore();
-
     } else if (feat.surfaceType === SurfaceType.TEE) {
-      // Sloped outer tee bank
       ctx.beginPath();
-      ctx.ellipse(0, 0, halfW * 1.22, halfL * 1.22, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, halfW * 1.24, halfL * 1.24, 0, 0, Math.PI * 2);
       ctx.fillStyle = patterns.firstCutPattern;
       ctx.fill();
 
-      // Crisp manicured collar around tee pad
       ctx.beginPath();
-      ctx.ellipse(0, 0, halfW * 1.04, halfL * 1.04, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, halfW * 1.06, halfL * 1.06, 0, 0, Math.PI * 2);
       ctx.fillStyle = patterns.fringePattern;
       ctx.fill();
 
-      // Inside Tee Box Turf (short_grass_01.jpg)
       ctx.beginPath();
       ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
       ctx.fillStyle = patterns.teeGrassPattern;
@@ -1005,15 +1043,21 @@ export class TerrainGrid {
   }
 
   /**
-   * Builds conformal high-resolution 3D surface sub-meshes for:
-   * 1. Inside Tee Box turf (using 2048x2048 short_grass_01.jpg tiled every 2.5m)
-   * 2. Bunker Sand beds (using 2048x2048 bunker_sand_01.jpg tiled every 3.5m)
-   * So close-up views show razor-sharp 2048x2048 photographic detail!
+   * Builds ultra-smooth, curve-aligned Polar 3D Meshes for:
+   * 1. Kidney Bunkers:
+   *    - 96-segment Polar Sand Bed Mesh (bunker_sand_01.jpg tiled every 1.15m x 1.15m)
+   *    - 96-segment Polar 3D Revetted Sod Wall & Overhanging Turf Lip Mesh (zero 1m grid jaggedness!)
+   * 2. Elevated Tee Boxes:
+   *    - 64-segment Smooth Polar Tee Turf Mesh (short_grass_01.jpg tiled every 0.45m x 0.45m for fine short grass!)
    */
   private rebuildHighResSurfaceOverlays() {
     if (this.bunkerSandOverlayMesh) {
       this.bunkerSandOverlayMesh.dispose();
       this.bunkerSandOverlayMesh = null;
+    }
+    if (this.bunkerLipWallMesh) {
+      this.bunkerLipWallMesh.dispose();
+      this.bunkerLipWallMesh = null;
     }
     if (this.teeBoxOverlayMesh) {
       this.teeBoxOverlayMesh.dispose();
@@ -1023,9 +1067,15 @@ export class TerrainGrid {
     const sandPositions: number[] = [];
     const sandNormals: number[] = [];
     const sandUVs: number[] = [];
-    const sandColors: number[] = [];
     const sandIndices: number[] = [];
     let sandVCount = 0;
+
+    const wallPositions: number[] = [];
+    const wallNormals: number[] = [];
+    const wallUVs: number[] = [];
+    const wallColors: number[] = [];
+    const wallIndices: number[] = [];
+    let wallVCount = 0;
 
     const teePositions: number[] = [];
     const teeNormals: number[] = [];
@@ -1034,89 +1084,252 @@ export class TerrainGrid {
     const teeIndices: number[] = [];
     let teeVCount = 0;
 
-    const cols = this.cols;
-    const rows = this.rows;
+    for (const feat of this.stampedFeatures) {
+      if (feat.surfaceType === SurfaceType.BUNKER) {
+        const halfW = feat.width * 0.5;
+        const halfL = feat.length * 0.5;
+        const cosR = Math.cos(feat.rotationRad);
+        const sinR = Math.sin(feat.rotationRad);
+        const effDepth = Math.min(-1.25, feat.depthProfile || -1.35);
+        const baseLip = Math.max(0.58, feat.lipHeight || 0.70);
 
-    const isInteriorSurface = (vx: number, vz: number, target: SurfaceType): boolean => {
-      if (vx <= 0 || vx >= cols - 1 || vz <= 0 || vz >= rows - 1) return false;
-      const idx = vz * cols + vx;
-      return (
-        this.surfaceTypes[idx] === target &&
-        this.surfaceTypes[idx - 1] === target &&
-        this.surfaceTypes[idx + 1] === target &&
-        this.surfaceTypes[idx - cols] === target &&
-        this.surfaceTypes[idx + cols] === target
-      );
-    };
+        const angSegs = 128;
+        const sandRings = 12;
+        const maxSandRho = 0.91;
 
-    for (let z = 0; z < this.length; z++) {
-      for (let x = 0; x < this.width; x++) {
-        const idx00 = z * cols + x;
-        const idx10 = z * cols + (x + 1);
-        const idx01 = (z + 1) * cols + x;
-        const idx11 = (z + 1) * cols + (x + 1);
+        // Precompute rim reference elevation around the perimeter at rho = 1.26 (undisturbed natural ground)
+        const rimElevations = new Float32Array(angSegs + 1);
+        for (let a = 0; a <= angSegs; a++) {
+          const theta = (a / angSegs) * Math.PI * 2;
+          const k = TerrainGrid.kidneyRadiusFactor(theta);
+          const lx1 = Math.cos(theta) * halfW * k * 1.26;
+          const lz1 = Math.sin(theta) * halfL * k * 1.26;
+          rimElevations[a] = this.getElevation(
+            feat.centerX + lx1 * cosR - lz1 * sinR,
+            feat.centerZ + lx1 * sinR + lz1 * cosR
+          );
+        }
 
-        const s00 = this.surfaceTypes[idx00];
-        const s10 = this.surfaceTypes[idx10];
-        const s01 = this.surfaceTypes[idx01];
-        const s11 = this.surfaceTypes[idx11];
-
-        const anyBunker =
-          s00 === SurfaceType.BUNKER ||
-          s10 === SurfaceType.BUNKER ||
-          s01 === SurfaceType.BUNKER ||
-          s11 === SurfaceType.BUNKER;
-
-        const anyTee =
-          s00 === SurfaceType.TEE ||
-          s10 === SurfaceType.TEE ||
-          s01 === SurfaceType.TEE ||
-          s11 === SurfaceType.TEE;
-
-        if (anyBunker) {
-          const base = sandVCount;
-          const verts = [idx00, idx10, idx01, idx11];
-          const coords = [
-            [x, z],
-            [x + 1, z],
-            [x, z + 1],
-            [x + 1, z + 1]
-          ];
-          for (let k = 0; k < 4; k++) {
-            const vi = verts[k];
-            const vx = coords[k][0];
-            const vz = coords[k][1];
-            sandPositions.push(vx, this.heights[vi] + 0.008, vz);
-            sandNormals.push(this.normals[vi * 3], this.normals[vi * 3 + 1], this.normals[vi * 3 + 2]);
-            // Tile 2048x2048 bunker_sand_01.jpg every 5m x 5m (~410 pixels per meter!)
-            sandUVs.push(vx / 5.0, vz / 5.0);
-            const alpha = isInteriorSurface(vx, vz, SurfaceType.BUNKER) ? 1.0 : 0.0;
-            sandColors.push(1.0, 1.0, 1.0, alpha);
+        // Smooth rim elevations angularly so the bunker lip is a 100% smooth 3D ribbon
+        const smoothRim = new Float32Array(angSegs + 1);
+        const smoothOuter = new Float32Array(angSegs + 1);
+        for (let a = 0; a <= angSegs; a++) {
+          let sumRim = 0;
+          for (let da = -8; da <= 8; da++) {
+            const idx = (a + da + angSegs) % angSegs;
+            sumRim += rimElevations[idx];
           }
-          sandIndices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
-          sandVCount += 4;
-        } else if (anyTee) {
-          const base = teeVCount;
-          const verts = [idx00, idx10, idx01, idx11];
-          const coords = [
-            [x, z],
-            [x + 1, z],
-            [x, z + 1],
-            [x + 1, z + 1]
-          ];
-          for (let k = 0; k < 4; k++) {
-            const vi = verts[k];
-            const vx = coords[k][0];
-            const vz = coords[k][1];
-            teePositions.push(vx, this.heights[vi] + 0.006, vz);
-            teeNormals.push(this.normals[vi * 3], this.normals[vi * 3 + 1], this.normals[vi * 3 + 2]);
-            // Tile 2048x2048 short_grass_01.jpg every 3m x 3m (~680 pixels per meter!)
-            teeUVs.push(vx / 3.0, vz / 3.0);
-            const alpha = isInteriorSurface(vx, vz, SurfaceType.TEE) ? 1.0 : 0.0;
-            teeColors.push(1.0, 1.0, 1.0, alpha);
+          smoothRim[a] = sumRim / 17;
+          smoothOuter[a] = smoothRim[a];
+        }
+
+        // A. 128-Segment Smooth Polar Kidney Sand Bed Mesh
+        const sandStartV = sandVCount;
+        for (let rIdx = 0; rIdx <= sandRings; rIdx++) {
+          const rho = (rIdx / sandRings) * maxSandRho;
+          const normR = rho / maxSandRho;
+          const bowlFactor = Math.cos(normR * Math.PI * 0.34);
+
+          for (let a = 0; a <= angSegs; a++) {
+            const theta = (a / angSegs) * Math.PI * 2;
+            const k = TerrainGrid.kidneyRadiusFactor(theta);
+            const lx = Math.cos(theta) * halfW * k * rho;
+            const lz = Math.sin(theta) * halfL * k * rho;
+
+            const wx = feat.centerX + lx * cosR - lz * sinR;
+            const wz = feat.centerZ + lx * sinR + lz * cosR;
+            const wy = smoothRim[a] + effDepth * bowlFactor + 0.03;
+
+            sandPositions.push(wx, wy, wz);
+            const tilt = Math.sin(normR * Math.PI * 0.34) * 0.25;
+            const nxLocal = -Math.cos(theta) * tilt;
+            const nzLocal = -Math.sin(theta) * tilt;
+            const nx = nxLocal * cosR - nzLocal * sinR;
+            const nz = nxLocal * sinR + nzLocal * cosR;
+            const ny = Math.sqrt(Math.max(0.5, 1.0 - nx * nx - nz * nz));
+            sandNormals.push(nx, ny, nz);
+
+            // Tile flat-field-equalized bunker_sand_01.jpg every 1.8m x 1.8m for fine, natural quartz sand
+            sandUVs.push(wx / 1.8, wz / 1.8);
+            sandVCount++;
           }
-          teeIndices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
-          teeVCount += 4;
+        }
+
+        const stride = angSegs + 1;
+        for (let rIdx = 0; rIdx < sandRings; rIdx++) {
+          for (let a = 0; a < angSegs; a++) {
+            const i00 = sandStartV + rIdx * stride + a;
+            const i10 = i00 + 1;
+            const i01 = i00 + stride;
+            const i11 = i01 + 1;
+            sandIndices.push(i00, i01, i10, i10, i01, i11);
+          }
+        }
+
+        // B. 128-Segment Smooth Polar 3D Revetted Sod Wall & Overhanging Turf Lip Mesh
+        const wallRings = 18;
+        const minWallRho = 0.82;
+        const maxWallRho = 1.28;
+        const wallStartV = wallVCount;
+
+        for (let rIdx = 0; rIdx <= wallRings; rIdx++) {
+          const u = rIdx / wallRings;
+          const rho = minWallRho + u * (maxWallRho - minWallRho);
+
+          for (let a = 0; a <= angSegs; a++) {
+            const theta = (a / angSegs) * Math.PI * 2;
+            const k = TerrainGrid.kidneyRadiusFactor(theta);
+            const lx = Math.cos(theta) * halfW * k * rho;
+            const lz = Math.sin(theta) * halfL * k * rho;
+
+            const wx = feat.centerX + lx * cosR - lz * sinR;
+            const wz = feat.centerZ + lx * sinR + lz * cosR;
+
+            const rimY = smoothRim[a];
+            const outerGroundY = Math.max(smoothOuter[a], this.getElevation(wx, wz));
+            const sandEdgeY = rimY + effDepth * Math.cos(Math.PI * 0.34) + 0.03;
+            const dirBoost = 0.82 + 0.25 * Math.sin(theta);
+            const lipCrestY = rimY + baseLip * dirBoost;
+
+            let wy: number;
+            let rC: number, gC: number, bC: number, alphaC: number;
+            let nxLocal = 0, nzLocal = 0, ny = 1.0;
+
+            if (rho <= 1.00) {
+              const t = Math.max(0, Math.min(1, (rho - minWallRho) / (1.00 - minWallRho)));
+              const sCurve = t * t * (3.0 - 2.0 * t);
+              wy = (sandEdgeY - 0.03) * (1.0 - sCurve) + lipCrestY * sCurve;
+
+              const wallSteepness = Math.sin(t * Math.PI) * 0.72;
+              nxLocal = -Math.cos(theta) * wallSteepness;
+              nzLocal = -Math.sin(theta) * wallSteepness;
+              ny = Math.sqrt(Math.max(0.25, 1.0 - wallSteepness * wallSteepness));
+
+              if (t < 0.25) {
+                rC = 0.38; gC = 0.30; bC = 0.20;
+              } else if (t < 0.82) {
+                const sodBands = 0.90 + 0.10 * Math.sin(t * Math.PI * 10.0);
+                rC = 0.46 * sodBands;
+                gC = 0.36 * sodBands;
+                bC = 0.23 * sodBands;
+              } else {
+                const gt = (t - 0.82) / 0.18;
+                rC = 0.46 * (1 - gt) + 0.44 * gt;
+                gC = 0.36 * (1 - gt) + 0.72 * gt;
+                bC = 0.23 * (1 - gt) + 0.32 * gt;
+              }
+              // Smoothly feather inner sand-to-wall transition over first 20% of wall so sand rim is 100% smooth
+              alphaC = t < 0.22 ? (t / 0.22) : 1.0;
+            } else {
+              // Rounded outer grassy bunker lip mound sloping smoothly into surrounding turf
+              const t = Math.max(0, Math.min(1, (rho - 1.00) / (maxWallRho - 1.00)));
+              const mound = 0.5 * (1.0 + Math.cos(t * Math.PI));
+              wy = (outerGroundY + 0.008) * (1.0 - mound) + lipCrestY * mound;
+
+              const outSlope = Math.sin(t * Math.PI) * 0.35;
+              nxLocal = Math.cos(theta) * outSlope;
+              nzLocal = Math.sin(theta) * outSlope;
+              ny = Math.sqrt(Math.max(0.5, 1.0 - outSlope * outSlope));
+
+              rC = 0.44 * (1 - t) + 0.54 * t;
+              gC = 0.72 * (1 - t) + 0.82 * t;
+              bC = 0.32 * (1 - t) + 0.40 * t;
+              alphaC = t < 0.28 ? 1.0 : Math.max(0, 1.0 - (t - 0.28) / 0.72);
+            }
+
+            const nx = nxLocal * cosR - nzLocal * sinR;
+            const nz = nxLocal * sinR + nzLocal * cosR;
+
+            wallPositions.push(wx, wy, wz);
+            wallNormals.push(nx, ny, nz);
+            wallUVs.push(wx / 1.1, wz / 1.1);
+            wallColors.push(rC, gC, bC, alphaC);
+            wallVCount++;
+          }
+        }
+
+        for (let rIdx = 0; rIdx < wallRings; rIdx++) {
+          for (let a = 0; a < angSegs; a++) {
+            const i00 = wallStartV + rIdx * stride + a;
+            const i10 = i00 + 1;
+            const i01 = i00 + stride;
+            const i11 = i01 + 1;
+            wallIndices.push(i00, i01, i10, i10, i01, i11);
+          }
+        }
+
+      } else if (feat.surfaceType === SurfaceType.TEE) {
+        // C. 96-Segment Smooth Polar Tee Box Turf Mesh (short_grass_01.jpg tiled every 0.95m x 0.95m)
+        const halfW = feat.width * 0.5;
+        const halfL = feat.length * 0.5;
+        const cosR = Math.cos(feat.rotationRad);
+        const sinR = Math.sin(feat.rotationRad);
+
+        const angSegs = 96;
+        const teeRings = 14;
+        const maxTeeRho = 1.32;
+        const teeStartV = teeVCount;
+        const centerY = this.getElevation(feat.centerX, feat.centerZ);
+
+        // Precompute angularly smoothed outer base elevation at rho = 1.35
+        const rawOuterTee = new Float32Array(angSegs + 1);
+        for (let a = 0; a <= angSegs; a++) {
+          const theta = (a / angSegs) * Math.PI * 2;
+          const lx = Math.cos(theta) * halfW * 1.35;
+          const lz = Math.sin(theta) * halfL * 1.35;
+          rawOuterTee[a] = this.getElevation(
+            feat.centerX + lx * cosR - lz * sinR,
+            feat.centerZ + lx * sinR + lz * cosR
+          );
+        }
+        const smoothOuterTee = new Float32Array(angSegs + 1);
+        for (let a = 0; a <= angSegs; a++) {
+          let sum = 0;
+          for (let da = -6; da <= 6; da++) {
+            sum += rawOuterTee[(a + da + angSegs) % angSegs];
+          }
+          smoothOuterTee[a] = sum / 13;
+        }
+
+        for (let rIdx = 0; rIdx <= teeRings; rIdx++) {
+          const rho = (rIdx / teeRings) * maxTeeRho;
+          const alpha = rho <= 1.05 ? 1.0 : Math.max(0, 1.0 - (rho - 1.05) / (maxTeeRho - 1.05));
+
+          for (let a = 0; a <= angSegs; a++) {
+            const theta = (a / angSegs) * Math.PI * 2;
+            const lx = Math.cos(theta) * halfW * rho;
+            const lz = Math.sin(theta) * halfL * rho;
+
+            const wx = feat.centerX + lx * cosR - lz * sinR;
+            const wz = feat.centerZ + lx * sinR + lz * cosR;
+            const gridY = this.getElevation(wx, wz);
+
+            let analyticalY = centerY;
+            if (rho > 0.92) {
+              const bankT = Math.min(1.0, (rho - 0.92) / (maxTeeRho - 0.92));
+              const smoothBank = 0.5 * (1.0 + Math.cos(bankT * Math.PI));
+              analyticalY = smoothOuterTee[a] * (1.0 - smoothBank) + centerY * smoothBank;
+            }
+            const wy = Math.max(gridY + 0.008, analyticalY + 0.012);
+
+            teePositions.push(wx, wy, wz);
+            teeNormals.push(0, 1, 0);
+            // Tile flat-field-equalized short_grass_01.jpg every 0.95m x 0.95m for fine short grass with zero blockiness
+            teeUVs.push(wx / 0.95, wz / 0.95);
+            teeColors.push(0.95, 1.0, 0.93, alpha);
+            teeVCount++;
+          }
+        }
+
+        const stride = angSegs + 1;
+        for (let rIdx = 0; rIdx < teeRings; rIdx++) {
+          for (let a = 0; a < angSegs; a++) {
+            const i00 = teeStartV + rIdx * stride + a;
+            const i10 = i00 + 1;
+            const i01 = i00 + stride;
+            const i11 = i01 + 1;
+            teeIndices.push(i00, i01, i10, i10, i01, i11);
+          }
         }
       }
     }
@@ -1125,15 +1338,28 @@ export class TerrainGrid {
       this.bunkerSandOverlayMesh = new Mesh('BunkerSandPhotoOverlay', this.scene);
       this.bunkerSandOverlayMesh.isPickable = false;
       this.bunkerSandOverlayMesh.receiveShadows = true;
-      this.bunkerSandOverlayMesh.hasVertexAlpha = true;
       const vd = new VertexData();
       vd.positions = new Float32Array(sandPositions);
       vd.normals = new Float32Array(sandNormals);
       vd.uvs = new Float32Array(sandUVs);
-      vd.colors = new Float32Array(sandColors);
       vd.indices = new Uint32Array(sandIndices);
       vd.applyToMesh(this.bunkerSandOverlayMesh, false);
       this.bunkerSandOverlayMesh.material = this.matBunkerSandOverlay;
+    }
+
+    if (wallIndices.length > 0) {
+      this.bunkerLipWallMesh = new Mesh('BunkerLipWallOverlay', this.scene);
+      this.bunkerLipWallMesh.isPickable = false;
+      this.bunkerLipWallMesh.receiveShadows = true;
+      this.bunkerLipWallMesh.hasVertexAlpha = true;
+      const vd = new VertexData();
+      vd.positions = new Float32Array(wallPositions);
+      vd.normals = new Float32Array(wallNormals);
+      vd.uvs = new Float32Array(wallUVs);
+      vd.colors = new Float32Array(wallColors);
+      vd.indices = new Uint32Array(wallIndices);
+      vd.applyToMesh(this.bunkerLipWallMesh, false);
+      this.bunkerLipWallMesh.material = this.matBunkerLipWall;
     }
 
     if (teeIndices.length > 0) {

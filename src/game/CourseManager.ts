@@ -63,22 +63,22 @@ export class CourseManager {
 
     // 2. Continuous Seamless Dogleg-Right Fairway descending into the valley
     this.terrain.stampDoglegFairway([
-      { x: 96, z: 78, width: 28 },
-      { x: 100, z: 195, width: 42 },
-      { x: 126, z: 280, width: 38 },
-      { x: 145, z: 332, width: 30 }
+      { x: 95, z: 62, width: 24 },
+      { x: 97, z: 185, width: 42 },
+      { x: 124, z: 275, width: 36 },
+      { x: 145, z: 334, width: 28 }
     ]);
 
-    // 3. Right Dogleg Corner Kidney Bunker (guards aggressive line cutting the dogleg)
-    this.terrain.stampFeature(124, 192, 14, 24, 0.35, SurfaceType.BUNKER, -1.35, 0.72);
+    // 3. Right Dogleg Corner Kidney Bunker (flanks the dogleg pinch outside the fairway contour)
+    this.terrain.stampFeature(132, 190, 14, 24, 0.30, SurfaceType.BUNKER, -1.35, 0.72);
 
-    // 4. Left Outer Elbow Kidney Bunker (catches long drives through the dogleg turn)
-    this.terrain.stampFeature(78, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
+    // 4. Left Outer Elbow Kidney Bunker (flanks the outer elbow outside the fairway contour)
+    this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
 
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
-    const pondRimElevation = this.terrain.getElevation(162, 285);
-    this.terrain.stampFeature(162, 285, 26, 44, 0.25, SurfaceType.WATER, -2.4);
-    const pondWater = this.scenery.createWaterPlane(162, pondRimElevation, 285, 24, 41);
+    const pondRimElevation = this.terrain.getElevation(168, 282);
+    this.terrain.stampFeature(168, 282, 24, 42, 0.22, SurfaceType.WATER, -2.4);
+    const pondWater = this.scenery.createWaterPlane(168, pondRimElevation, 282, 22, 39);
     this.sceneryMeshes.push(pondWater);
 
     // 6. Lower Tournament Green at (148, 360) — sits ~0.95m lower than the approach fairway
