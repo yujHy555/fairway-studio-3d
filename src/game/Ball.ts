@@ -43,7 +43,7 @@ export class Ball {
   public shotOrigin: Vector3D = { x: 0, y: 0, z: 0 };
   public carryDistance = 0;
   public totalDistance = 0;
-  private hasLanded = false;
+  public hasLanded = false;
 
   // Active Pin Target for Dynamic Cup Entry
   public activePinPosition: Vector3D | null = null;
@@ -128,11 +128,13 @@ export class Ball {
       return;
     }
     const heightAboveGround = Math.max(0, this.mesh.position.y - (groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS));
-    if (heightAboveGround > 0.35) {
+    if (heightAboveGround > 3.2) {
       this.contactShadowMesh.setEnabled(false);
       return;
     }
     this.contactShadowMesh.setEnabled(true);
+    const scale = 1.0 + Math.min(1.4, heightAboveGround * 0.45);
+    this.contactShadowMesh.scaling.set(scale, 1.0, scale);
     this.contactShadowMesh.position.set(this.mesh.position.x, groundY + 0.001, this.mesh.position.z);
   }
 
@@ -446,15 +448,18 @@ export class Ball {
 
     const bounceVy = -vNormY * props.restitution;
 
-    if (Math.abs(bounceVy) > 1.4 && surface !== SurfaceType.BUNKER) {
-      this.curVelocity.x = vTangX * (1 - props.friction * 0.5) - vNormX * props.restitution;
+    // Record exact ground impact point in the Toptracer ribbon so bounce cusps are clearly visible
+    this.tracerPoints.push(this.mesh.position.clone());
+
+    if (Math.abs(bounceVy) > 0.62 && surface !== SurfaceType.BUNKER) {
+      this.curVelocity.x = vTangX * (1 - props.friction * 0.38) - vNormX * props.restitution;
       this.curVelocity.y = bounceVy;
-      this.curVelocity.z = vTangZ * (1 - props.friction * 0.5) - vNormZ * props.restitution;
+      this.curVelocity.z = vTangZ * (1 - props.friction * 0.38) - vNormZ * props.restitution;
     } else {
       this.state = BallState.ROLLING;
       this.curVelocity.y = 0;
-      this.curVelocity.x = vTangX * (1 - props.friction * 0.4);
-      this.curVelocity.z = vTangZ * (1 - props.friction * 0.4);
+      this.curVelocity.x = vTangX * (1 - props.friction * 0.35);
+      this.curVelocity.z = vTangZ * (1 - props.friction * 0.35);
       this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
     }
   }

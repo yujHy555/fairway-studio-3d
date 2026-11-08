@@ -194,26 +194,15 @@ export const PRESET_FEATURES: PresetFeature[] = [
 
   // SCENERY PROPS
   {
-    id: 'scenery_pine',
-    name: 'Augusta Pine Tree',
+    id: 'scenery_pine_medium_01',
+    name: 'Medium Pine Tree 01',
     category: 'scenery',
-    description: 'Realistic tall evergreen conifer with layered needle boughs',
+    description: 'Realistic 3D pine tree model (pine_tree_medium_01_01.glb)',
     icon: '🌲',
-    surfaceType: SurfaceType.ROUGH,
-    width: 4,
-    length: 4,
-    sceneryType: 'pine'
-  },
-  {
-    id: 'scenery_oak',
-    name: 'Championship Oak Tree',
-    category: 'scenery',
-    description: 'Broad organic canopy deciduous tree',
-    icon: '🌳',
     surfaceType: SurfaceType.ROUGH,
     width: 6,
     length: 6,
-    sceneryType: 'oak'
+    sceneryType: 'pine'
   },
   {
     id: 'scenery_rocks',

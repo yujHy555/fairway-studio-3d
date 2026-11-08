@@ -26,8 +26,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.ROUGH]: {
     name: 'Rough',
     color: [0.22, 0.48, 0.18],     // Deep lush grass green
-    restitution: 0.12,
-    friction: 0.85,
+    restitution: 0.22,
+    friction: 0.82,
     rollingResistance: 0.85,       // Decisive stop in rough
     liePenalty: 0.75,              // 75% power from rough
     spinMultiplier: 0.50           // Fliers / reduced spin
@@ -35,8 +35,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FAIRWAY]: {
     name: 'Fairway',
     color: [0.38, 0.70, 0.28],     // Crisp bright fairway green
-    restitution: 0.30,
-    friction: 0.40,
+    restitution: 0.42,
+    friction: 0.36,
     rollingResistance: 0.28,       // Natural rollout and decisive stop
     liePenalty: 1.0,
     spinMultiplier: 1.0
@@ -44,7 +44,7 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.GREEN]: {
     name: 'Green',
     color: [0.28, 0.78, 0.38],     // Silky manicured putting green
-    restitution: 0.38,
+    restitution: 0.45,
     friction: 0.18,
     rollingResistance: 0.08,       // Tournament stimp speed allowing full-range putts
     liePenalty: 1.0,
@@ -53,8 +53,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.BUNKER]: {
     name: 'Bunker',
     color: [0.91, 0.82, 0.59],     // Warm golden sand
-    restitution: 0.03,             // Dead thud
-    friction: 0.98,
+    restitution: 0.05,             // Soft sand plug with tiny hop
+    friction: 0.96,
     rollingResistance: 1.4,        // Instant sand plug
     liePenalty: 0.60,
     spinMultiplier: 0.35
@@ -62,7 +62,7 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.TEE]: {
     name: 'Tee Box',
     color: [0.42, 0.75, 0.32],
-    restitution: 0.35,
+    restitution: 0.40,
     friction: 0.35,
     rollingResistance: 0.35,
     liePenalty: 1.0,
@@ -89,8 +89,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FRINGE]: {
     name: 'Green Fringe',
     color: [0.33, 0.74, 0.33],     // Vivid fringe collar surrounding the green
-    restitution: 0.34,
-    friction: 0.32,
+    restitution: 0.38,
+    friction: 0.30,
     rollingResistance: 0.30,       // Slightly slower than green; puttable
     liePenalty: 0.95,
     spinMultiplier: 0.90
@@ -98,8 +98,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FIRST_CUT]: {
     name: 'First Cut',
     color: [0.29, 0.58, 0.22],     // Intermediate cut bordering fairway
-    restitution: 0.24,
-    friction: 0.60,
+    restitution: 0.32,
+    friction: 0.52,
     rollingResistance: 0.55,       // Catches runaway fairway rollouts cleanly
     liePenalty: 0.88,
     spinMultiplier: 0.75

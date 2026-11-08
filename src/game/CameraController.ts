@@ -38,11 +38,13 @@ export class CameraController {
 
     const pointersInput = (this.camera.inputs?.attached?.pointers as any);
     if (pointersInput) {
-      // LMB (0) = Orbit, MMB (1) = Native Pan; RMB (2) is handled below for combined Pan & Zoom
+      // LMB (0) = Orbit, MMB (1) = Pan; RMB (2) is handled below for pure orthogonal screen-plane Pan ONLY
       pointersInput.buttons = [0, 1];
+      pointersInput.multiTouchPanAndZoom = false;
+      pointersInput.multiTouchPanning = true;
     }
 
-    // Near/Far planes tuned for both millimeter close-ups of the golf ball and 1km mountain vistas
+    // Near/Far planes tuned for both millimeter close-ups of the golf ball and course vistas
     this.camera.minZ = 0.10;
     this.camera.maxZ = 2400;
 
@@ -76,21 +78,31 @@ export class CameraController {
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
 
       const r = Math.max(1.5, this.camera.radius);
-      const panScale = r * 0.0022;
+      const panScale = r * 0.0018;
 
-      // Camera horizontal basis vectors in the XZ plane
-      const forwardX = -Math.cos(this.camera.alpha);
-      const forwardZ = -Math.sin(this.camera.alpha);
-      const rightX = Math.sin(this.camera.alpha);
-      const rightZ = -Math.cos(this.camera.alpha);
+      // Pure Screen-Plane Orthogonal Basis Vectors (strictly perpendicular to the camera's view ray so RMB NEVER zooms/dollies)
+      const cosAlpha = Math.cos(this.camera.alpha);
+      const sinAlpha = Math.sin(this.camera.alpha);
+      const cosBeta = Math.cos(this.camera.beta);
+      const sinBeta = Math.sin(this.camera.beta);
 
-      // Horizontal RMB drag pans left/right; Vertical RMB drag pans forward/backward ONLY (no zoom)
-      const deltaX = -dx * rightX * panScale;
-      const deltaZ = -dx * rightZ * panScale;
-      const forwardPan = dy * panScale;
+      // Camera Screen Right vector in world space: (sinAlpha, 0, -cosAlpha)
+      const rightX = sinAlpha;
+      const rightZ = -cosAlpha;
 
-      this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + deltaX + forwardX * forwardPan));
-      this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + deltaZ + forwardZ * forwardPan));
+      // Camera Screen Up vector in world space (orthogonal to both ViewForward and ScreenRight): (-cosBeta * cosAlpha, sinBeta, -cosBeta * sinAlpha)
+      const upX = -cosBeta * cosAlpha;
+      const upY = sinBeta;
+      const upZ = -cosBeta * sinAlpha;
+
+      // Dragging left/right pans along ScreenRight; dragging up/down pans along ScreenUp (0% motion along ViewForward)
+      const moveX = (-dx * rightX + dy * upX) * panScale;
+      const moveY = (dy * upY) * panScale;
+      const moveZ = (-dx * rightZ + dy * upZ) * panScale;
+
+      this.camera.target.x = Math.max(-20, Math.min(240, this.camera.target.x + moveX));
+      this.camera.target.y = Math.max(0.25, Math.min(180, this.camera.target.y + moveY));
+      this.camera.target.z = Math.max(-20, Math.min(480, this.camera.target.z + moveZ));
     });
 
     window.addEventListener('pointerup', (e) => {
@@ -118,13 +130,14 @@ export class CameraController {
     this.camera.angularSensibilityX = 950;
     this.camera.angularSensibilityY = 950;
     this.camera.panningSensibility = 80;
-    this.camera.panningAxis = new Vector3(1, 0.2, 1);
+    // Pure screen-plane panning (X = ScreenRight, Y = ScreenUp, Z = 0 so panning never zooms along view depth)
+    this.camera.panningAxis = new Vector3(1, 1, 0);
   }
 
   public setMode(mode: CameraMode) {
     this.mode = mode;
 
-    // Keep LMB (0) for Orbit and MMB (1) for Pan across all modes; RMB (2) is handled by our Pan & Zoom handler
+    // Keep LMB (0) for Orbit and MMB (1) for Pan across all modes; RMB (2) is handled by our pure screen-plane Pan handler
     const pointersInput = (this.camera.inputs?.attached?.pointers as any);
     if (pointersInput) {
       pointersInput.buttons = [0, 1];
@@ -134,29 +147,30 @@ export class CameraController {
       this.camera.radius = 85;
       this.camera.beta = Math.PI / 3.2;
     } else if (mode === 'aim') {
-      this.camera.radius = 2.4;
+      // Pulled 2m further back from the previous 2.4m default ball position -> 4.4m
+      this.camera.radius = 4.4;
       this.camera.beta = Math.PI / 2.42;
     } else if (mode === 'green') {
-      this.camera.radius = 3.6;
-      this.camera.beta = Math.PI / 2.9;
-    } else if (mode === 'flight') {
-      this.camera.radius = 16.0;
+      this.camera.radius = 5.6;
       this.camera.beta = Math.PI / 2.85;
+    } else if (mode === 'flight') {
+      this.camera.radius = 9.5;
+      this.camera.beta = Math.PI / 2.65;
     }
   }
 
   public snapAimBehindBall(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, ballPos.y + 0.35, ballPos.z);
+    this.targetPosition.set(ballPos.x, ballPos.y + 0.42, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
     this.camera.alpha = -aimRad - Math.PI / 2;
     this.camera.beta = Math.PI / 2.42;
-    this.camera.radius = 2.4;
+    this.camera.radius = 4.4;
   }
 
   public setAimHeading(ballPos: Vector3, aimAzimuthDeg: number) {
-    this.targetPosition.set(ballPos.x, ballPos.y + 0.35, ballPos.z);
+    this.targetPosition.set(ballPos.x, ballPos.y + 0.42, ballPos.z);
     this.camera.target.copyFrom(this.targetPosition);
 
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
@@ -164,13 +178,31 @@ export class CameraController {
     this.camera.alpha += (targetAlpha - this.camera.alpha) * 0.35;
   }
 
-  public updateFlightCamera(ballPos: Vector3, ballVelocity: Vector3D) {
+  public updateFlightCamera(ballPos: Vector3, ballVelocity: Vector3D, groundY = 0, hasLanded = false) {
     if (this.mode !== 'flight') return;
 
-    const safeTarget = new Vector3(ballPos.x, Math.max(0.5, ballPos.y), ballPos.z);
-    this.camera.target = Vector3.Lerp(this.camera.target, safeTarget, 0.24);
+    const heightAboveGround = Math.max(0, ballPos.y - groundY);
+    const isNearGroundOrBouncing = hasLanded || (heightAboveGround < 3.8 && ballVelocity.y <= 0);
+
+    // Anchor target Y to the turf plane when landing/bouncing so the camera stays steady while the ball visibly hops up and down!
+    const targetY = isNearGroundOrBouncing
+      ? Math.max(0.35, groundY + 0.42)
+      : Math.max(0.5, ballPos.y);
+
+    const horizontalLerp = isNearGroundOrBouncing ? 0.55 : 0.35;
+    const verticalLerp = isNearGroundOrBouncing ? 0.30 : 0.25;
+
+    this.camera.target.x += (ballPos.x - this.camera.target.x) * horizontalLerp;
+    this.camera.target.z += (ballPos.z - this.camera.target.z) * horizontalLerp;
+    this.camera.target.y += (targetY - this.camera.target.y) * verticalLerp;
 
     if (this.isUserDragging) return;
+
+    // Frame the landing & bounce clearly at a close broadcast angle (~5.4m) when the ball hits the turf
+    const desiredRadius = isNearGroundOrBouncing ? 5.4 : 9.5;
+    const desiredBeta = isNearGroundOrBouncing ? Math.PI / 2.38 : Math.PI / 2.65;
+    this.camera.radius += (desiredRadius - this.camera.radius) * 0.12;
+    this.camera.beta += (desiredBeta - this.camera.beta) * 0.10;
 
     const horizontalSpeed = Math.sqrt(ballVelocity.x * ballVelocity.x + ballVelocity.z * ballVelocity.z);
     if (horizontalSpeed > 1.2) {
@@ -180,7 +212,7 @@ export class CameraController {
       let alphaDiff = targetAlpha - this.camera.alpha;
       while (alphaDiff < -Math.PI) alphaDiff += Math.PI * 2;
       while (alphaDiff > Math.PI) alphaDiff -= Math.PI * 2;
-      this.camera.alpha += alphaDiff * 0.04;
+      this.camera.alpha += alphaDiff * 0.05;
     }
   }
 
@@ -225,15 +257,14 @@ export class CameraController {
 
       if (moveX !== 0 || moveZ !== 0) {
         const len = Math.sqrt(moveX * moveX + moveZ * moveZ) || 1;
-        this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + (moveX / len) * moveSpeed));
-        this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + (moveZ / len) * moveSpeed));
+        this.camera.target.x = Math.max(-20, Math.min(240, this.camera.target.x + (moveX / len) * moveSpeed));
+        this.camera.target.z = Math.max(-20, Math.min(480, this.camera.target.z + (moveZ / len) * moveSpeed));
+        const targetGround = getWorldElevation(this.camera.target.x, this.camera.target.z);
+        this.camera.target.y = Math.max(
+          targetGround + 0.35,
+          this.camera.target.y * 0.85 + (targetGround + 0.6) * 0.15
+        );
       }
-
-      const targetGround = getWorldElevation(this.camera.target.x, this.camera.target.z);
-      this.camera.target.y = Math.max(
-        targetGround + 0.35,
-        this.camera.target.y * 0.85 + (targetGround + 0.6) * 0.15
-      );
     }
 
     // 3. Ensure target itself never sinks below local terrain

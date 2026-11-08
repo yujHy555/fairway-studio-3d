@@ -76,9 +76,9 @@ export class CourseManager {
     this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
 
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
-    const pondRimElevation = this.terrain.getElevation(168, 282);
+    const pondRimElevation = this.terrain.getBaseElevation(168, 282);
     this.terrain.stampFeature(168, 282, 24, 42, 0.22, SurfaceType.WATER, -2.4);
-    const pondWater = this.scenery.createWaterPlane(168, pondRimElevation, 282, 22, 39);
+    const pondWater = this.scenery.createWaterPlane(168, pondRimElevation, 282, 24, 42, 0.22);
     this.sceneryMeshes.push(pondWater);
 
     // 6. Lower Tournament Green at (148, 360) — sits ~0.95m lower than the approach fairway
@@ -90,25 +90,34 @@ export class CourseManager {
     // 8. Greenside Back-Right Kidney Bunker
     this.terrain.stampFeature(164, 366, 11, 16, -0.40, SurfaceType.BUNKER, -1.35, 0.70);
 
-    // 9. Realistic Pine and Oak trees framing the dogleg-right valley corridor
+    // 9. Scatter the new realistic 3D Pine Tree model (pine_tree_medium_01_01.glb) around the level/scene
     const treePositions = [
-      { x: 64, z: 65, type: 'pine', s: 1.15 },
-      { x: 58, z: 115, type: 'oak', s: 1.25 },
-      { x: 132, z: 95, type: 'pine', s: 1.10 },
-      { x: 142, z: 145, type: 'oak', s: 1.30 },
-      { x: 60, z: 175, type: 'pine', s: 1.25 },
-      { x: 56, z: 255, type: 'pine', s: 1.40 },
-      { x: 88, z: 315, type: 'oak', s: 1.20 },
-      { x: 184, z: 335, type: 'pine', s: 1.25 },
-      { x: 120, z: 386, type: 'oak', s: 1.15 },
-      { x: 174, z: 388, type: 'pine', s: 1.35 }
+      // Framing behind & around the Elevated Tee Box
+      { x: 58, z: 24, s: 0.95 }, { x: 74, z: 20, s: 1.08 }, { x: 116, z: 22, s: 1.02 }, { x: 134, z: 28, s: 0.90 },
+      { x: 54, z: 46, s: 1.10 }, { x: 64, z: 62, s: 0.92 }, { x: 128, z: 48, s: 1.05 }, { x: 138, z: 66, s: 0.96 },
+
+      // Left Rough & Outer Woodland Corridor along the Dogleg
+      { x: 34, z: 85, s: 1.12 }, { x: 56, z: 95, s: 0.88 }, { x: 42, z: 122, s: 1.04 }, { x: 60, z: 138, s: 0.95 },
+      { x: 30, z: 155, s: 1.15 }, { x: 54, z: 175, s: 1.00 }, { x: 38, z: 198, s: 0.92 }, { x: 52, z: 215, s: 1.08 },
+      { x: 32, z: 240, s: 1.14 }, { x: 54, z: 262, s: 0.96 }, { x: 44, z: 288, s: 1.05 }, { x: 68, z: 305, s: 0.90 },
+      { x: 82, z: 325, s: 1.02 }, { x: 60, z: 342, s: 1.10 }, { x: 96, z: 356, s: 0.94 },
+
+      // Right Rough & Dogleg Corner Woodland
+      { x: 146, z: 88, s: 1.06 }, { x: 168, z: 105, s: 0.94 }, { x: 142, z: 128, s: 0.98 }, { x: 164, z: 148, s: 1.12 },
+      { x: 154, z: 168, s: 0.88 }, { x: 178, z: 185, s: 1.05 }, { x: 162, z: 215, s: 0.96 }, { x: 186, z: 235, s: 1.10 },
+      { x: 194, z: 268, s: 1.02 }, { x: 196, z: 298, s: 0.92 }, { x: 188, z: 328, s: 1.08 }, { x: 196, z: 355, s: 0.95 },
+
+      // Championship Green Amphitheater Backdrop
+      { x: 108, z: 382, s: 0.92 }, { x: 124, z: 394, s: 1.06 }, { x: 142, z: 400, s: 1.14 },
+      { x: 160, z: 398, s: 1.02 }, { x: 178, z: 390, s: 0.96 }, { x: 190, z: 378, s: 1.08 },
+      { x: 94, z: 408, s: 1.10 }, { x: 132, z: 418, s: 0.98 }, { x: 168, z: 416, s: 1.12 }
     ];
 
-    for (const t of treePositions) {
+    for (let i = 0; i < treePositions.length; i++) {
+      const t = treePositions[i];
       const ty = this.terrain.getElevation(t.x, t.z);
-      const tree = t.type === 'pine'
-        ? this.scenery.createPineTree(t.x, ty, t.z, t.s)
-        : this.scenery.createOakTree(t.x, ty, t.z, t.s);
+      const rotY = (i * 2.39996) % (Math.PI * 2); // Golden-angle rotation so every tree silhouette is distinct
+      const tree = this.scenery.createPineTree(t.x, ty, t.z, t.s, rotY);
       this.sceneryMeshes.push(tree);
     }
 

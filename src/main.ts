@@ -22,7 +22,6 @@ import { GOLF_CONSTANTS, SurfaceType } from './core/Constants';
 import { PresetFeature, ClubSpec } from './core/Types';
 import { HavokManager } from './physics/HavokManager';
 import { TerrainGrid } from './terrain/TerrainGrid';
-import { ProceduralBackdrop } from './terrain/ProceduralBackdrop';
 import { SceneryFactory } from './terrain/Scenery';
 import { GreenContourVisualizer } from './terrain/GreenContourVisualizer';
 import { Ball, BallState } from './game/Ball';
@@ -41,7 +40,6 @@ class FairwayStudioApp {
 
   private havok: HavokManager;
   private terrain!: TerrainGrid;
-  private backdrop!: ProceduralBackdrop;
   private scenery!: SceneryFactory;
   private courseManager!: CourseManager;
   private greenVisualizer!: GreenContourVisualizer;
@@ -94,18 +92,18 @@ class FairwayStudioApp {
     // 3. Initialize Havok Physics
     await this.havok.initialize();
 
-    // 4. Initialize Smooth Shared-Vertex Terrain & Backdrop
+    // 4. Initialize Main Hole Mesh (outer land backdrop removed per user request)
     this.terrain = new TerrainGrid(this.scene);
     this.terrain.buildMesh();
     this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
-    this.backdrop = new ProceduralBackdrop(this.scene);
 
     if (this.terrain.terrainMesh) {
       this.terrain.terrainMesh.receiveShadows = true;
     }
 
-    // 5. Initialize Realistic Scenery & Course
+    // 5. Initialize Realistic Scenery (including pine_tree_medium_01_01.glb) & Course
     this.scenery = new SceneryFactory(this.scene);
+    await this.scenery.loadTreeModels();
     this.courseManager = new CourseManager(this.terrain, this.scenery);
 
     // 6. Green Contours
@@ -209,6 +207,7 @@ class FairwayStudioApp {
         csm.darkness = 0.20;
         csm.bias = 0.00004;
         csm.normalBias = 0.0; // Zero normal offset so the 4.27cm golf ball & tee markers cast crisp real shadows!
+        csm.transparencyShadow = true; // Cast real alpha-cutout shadows from pine_tree_medium_01_01.glb foliage!
         this.shadowGenerator = csm;
       } else {
         sun.autoCalcShadowZBounds = false;
@@ -226,6 +225,7 @@ class FairwayStudioApp {
         sg.bias = 0.00008;
         sg.normalBias = 0.0001;
         sg.darkness = 0.22;
+        sg.transparencyShadow = true;
         this.shadowGenerator = sg;
       }
     } catch (e) {
@@ -270,12 +270,7 @@ class FairwayStudioApp {
   }
 
   public getWorldElevation(x: number, z: number): number {
-    if (x >= 2 && x <= this.terrain.width - 2 && z >= 2 && z <= this.terrain.length - 2) {
-      return this.terrain.getElevation(x, z);
-    }
-    const tElev = this.terrain.getElevation(x, z);
-    const bElev = this.backdrop ? this.backdrop.getElevation(x, z) : 0;
-    return Math.max(tElev, bElev);
+    return this.terrain.getElevation(x, z);
   }
 
   private placeBallAtActiveTee() {
@@ -835,7 +830,7 @@ class FairwayStudioApp {
         }
       } else {
         if (p.surfaceType === SurfaceType.WATER) {
-          const rimElevation = this.terrain.getElevation(gx, gz);
+          const rimElevation = this.terrain.getBaseElevation(gx, gz);
           this.terrain.stampFeature(
             gx,
             gz,
@@ -846,7 +841,7 @@ class FairwayStudioApp {
             p.depthProfile ?? -2.2,
             p.lipHeight ?? 0
           );
-          const waterMesh = this.scenery.createWaterPlane(gx, rimElevation, gz, p.width, p.length);
+          const waterMesh = this.scenery.createWaterPlane(gx, rimElevation, gz, p.width, p.length, 0);
           if (waterMesh && this.shadowGenerator) {
             this.shadowGenerator.addShadowCaster(waterMesh, true);
           }
@@ -899,7 +894,8 @@ class FairwayStudioApp {
     }
 
     if (this.cameraCtrl.mode === 'flight') {
-      this.cameraCtrl.updateFlightCamera(this.ball.position, this.ball.curVelocity);
+      const groundY = this.terrain.getElevation(this.ball.position.x, this.ball.position.z);
+      this.cameraCtrl.updateFlightCamera(this.ball.position, this.ball.curVelocity, groundY, this.ball.hasLanded);
     }
 
     if (this.aimSystem && this.activeMode === 'play' && this.ball.state === BallState.AT_REST) {

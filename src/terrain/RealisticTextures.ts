@@ -317,14 +317,15 @@ export class RealisticTextures {
       const v = y / size;
       for (let x = 0; x < size; x++) {
         const u = x / size;
-        const wave1 = Math.sin((u * 6 + v * 4) * Math.PI * 2) * 0.25;
-        const wave2 = Math.cos((u * 8 - v * 7) * Math.PI * 2) * 0.20;
-        const ripple = this.seamlessFBM(u, v, 12, 3, 41.2) * 0.55;
-        hMap[y * size + x] = wave1 + wave2 + ripple;
+        // Pure organic multi-scale FBM wind ripples (zero regular diagonal sine grid lines)
+        const swell = this.seamlessFBM(u, v, 6, 3, 19.4) * 0.42;
+        const breeze = this.seamlessFBM(u + 0.37, v + 0.61, 14, 3, 41.2) * 0.36;
+        const micro = this.seamlessFBM(u + 0.73, v + 0.19, 28, 2, 63.8) * 0.22;
+        hMap[y * size + x] = swell + breeze + micro;
       }
     }
 
-    const strength = 2.6;
+    const strength = 2.1;
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const xL = this.wrapCoord(x - 1, size);
