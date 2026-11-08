@@ -83,6 +83,8 @@ class FairwayStudioApp {
   }
 
   public async start() {
+    this.updatePreloader(10, 'Initializing Camera & Sun Lighting...');
+
     // 1. Setup Camera first so CascadedShadowGenerator can bind to activeCamera
     this.cameraCtrl = new CameraController(this.scene, this.canvas);
     this.scene.activeCamera = this.cameraCtrl.camera;
@@ -90,8 +92,12 @@ class FairwayStudioApp {
     // 2. Setup Sun & HDRI Environment Lighting with Real AAA Soft Shadows
     this.setupLighting();
 
+    this.updatePreloader(25, 'Loading Havok Physics Engine...');
+
     // 3. Initialize Havok Physics
     await this.havok.initialize();
+
+    this.updatePreloader(45, 'Generating Championship Fairway & Sculpted Bunkers...');
 
     // 4. Initialize Main Hole Mesh (outer land backdrop removed per user request)
     this.terrain = new TerrainGrid(this.scene);
@@ -102,10 +108,14 @@ class FairwayStudioApp {
       this.terrain.terrainMesh.receiveShadows = true;
     }
 
+    this.updatePreloader(65, 'Loading 3D Pines, Hero Trees & Coastal Cliffs...');
+
     // 5. Initialize Realistic Scenery (including pine_tree_medium_01_01.glb) & Course
     this.scenery = new SceneryFactory(this.scene);
     await this.scenery.loadTreeModels();
     this.courseManager = new CourseManager(this.terrain, this.scenery);
+
+    this.updatePreloader(85, 'Placing Flags, Aim Chevrons & Green Contours...');
 
     // 6. Green Contours
     this.greenVisualizer = new GreenContourVisualizer(this.scene, this.terrain);
@@ -139,16 +149,39 @@ class FairwayStudioApp {
       this.cameraCtrl.enforceTerrainCollision((x, z) => this.getWorldElevation(x, z), dt);
     });
 
+    this.updatePreloader(100, 'Teeing Off...');
+
     // 12. Start Render Loop
+    let framesRendered = 0;
     this.engine.runRenderLoop(() => {
       const dt = this.engine.getDeltaTime() / 1000;
       this.update(dt);
       this.scene.render();
+      framesRendered++;
+      if (framesRendered === 2) {
+        this.dismissPreloader();
+      }
     });
 
     window.addEventListener('resize', () => {
       this.engine.resize();
     });
+  }
+
+  private updatePreloader(percent: number, status: string) {
+    const bar = document.getElementById('preloader-bar');
+    const percentEl = document.getElementById('preloader-percent');
+    const statusEl = document.getElementById('preloader-status');
+    if (bar) bar.style.width = `${percent}%`;
+    if (percentEl) percentEl.textContent = `${Math.round(percent)}%`;
+    if (statusEl) statusEl.textContent = status;
+  }
+
+  private dismissPreloader() {
+    const preloader = document.getElementById('game-preloader');
+    if (preloader) {
+      preloader.classList.add('fade-out');
+    }
   }
 
   private setupLighting() {

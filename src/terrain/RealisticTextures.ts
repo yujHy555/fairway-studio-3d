@@ -90,11 +90,12 @@ export class RealisticTextures {
         let r = 0, g = 0, b = 0;
 
         if (type === 'rough') {
-          // Deep lush fescue & tangled ryegrass with rich shadow pockets and olive tips
+          // Natural championship fescue & rough with earthy golden-brown thatch and muted olive grass
           const blade = (nMacro * 0.35 + nMid * 0.40 + nMicro * 0.25);
-          r = 28 + blade * 34;
-          g = 66 + blade * 54;
-          b = 22 + blade * 24;
+          const brownFescue = this.seamlessFBM(u, v, 14, 3, 3.8); // Organic golden-brown thatch patches
+          r = 58 + blade * 36 + brownFescue * 30;
+          g = 68 + blade * 32 - brownFescue * 10;
+          b = 28 + blade * 18 + brownFescue * 12;
         } else if (type === 'first_cut') {
           // Dense intermediate cut bordering fairway
           const blade = (nMacro * 0.30 + nMid * 0.42 + nMicro * 0.28);
@@ -157,7 +158,11 @@ export class RealisticTextures {
         const dy = Math.sin(angle) * bladeLen;
 
         const isLight = i % 2 === 0;
-        ctx.strokeStyle = isLight ? 'rgba(185, 235, 110, 0.16)' : 'rgba(15, 42, 12, 0.16)';
+        if (type === 'rough') {
+          ctx.strokeStyle = isLight ? 'rgba(195, 168, 105, 0.22)' : 'rgba(46, 36, 18, 0.20)'; // warm fescue & brown thatch blades
+        } else {
+          ctx.strokeStyle = isLight ? 'rgba(185, 235, 110, 0.16)' : 'rgba(15, 42, 12, 0.16)';
+        }
 
         // Draw wrapped across all 9 toroidal offsets if near edge to guarantee 100% seamless tiling
         for (let ox = -size; ox <= size; ox += size) {

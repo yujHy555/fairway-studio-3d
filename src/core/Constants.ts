@@ -25,7 +25,7 @@ export interface SurfaceProperties {
 export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.ROUGH]: {
     name: 'Rough',
-    color: [0.22, 0.48, 0.18],     // Deep lush grass green
+    color: [0.32, 0.42, 0.20],     // Earthy olive & golden-brown fescue rough
     restitution: 0.12,             // Very low bounce in tall grass
     friction: 0.85,                // Heavy turf friction
     rollingResistance: 1.15,       // High resistance; ball stops in 1-3m

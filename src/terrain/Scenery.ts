@@ -820,7 +820,8 @@ export class SceneryFactory {
   public createBush(x: number, y: number, z: number, scale = 1.0, rotationY?: number): Mesh {
     const idx = this.activeBushes.length;
     const root = new Mesh(`bush_root_${idx}`, this.scene);
-    root.position.set(x, y - 0.02, z);
+    // Sink main stem firmly into soil so root branches are embedded on all slopes
+    root.position.set(x, y - 0.24 * scale, z);
     const s = scale * 1.35;
     root.scaling.set(s, s, s);
     root.rotation.y = rotationY !== undefined ? rotationY : ((x * 1.73 + z * 2.41) % (Math.PI * 2));

@@ -7,6 +7,32 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <!-- PGA Tour Style Championship Course Preloader -->
+    <div id="game-preloader" class="game-preloader">
+      <div class="preloader-backdrop"></div>
+      <div class="preloader-content">
+        <div class="preloader-crest">
+          <div class="preloader-pin-icon">⛳</div>
+        </div>
+        <div class="preloader-brand">FAIRWAY STUDIO 3D</div>
+        <div class="preloader-tour-tag">CHAMPIONSHIP COURSE SIMULATOR</div>
+        
+        <div class="preloader-progress-container">
+          <div class="preloader-progress-track">
+            <div id="preloader-bar" class="preloader-progress-bar"></div>
+          </div>
+          <div class="preloader-progress-info">
+            <span id="preloader-status" class="preloader-status">Initializing Course Engine...</span>
+            <span id="preloader-percent" class="preloader-percent">0%</span>
+          </div>
+        </div>
+        
+        <div class="preloader-course-info">
+          <span>HOLE 1 • PAR 4 • 385 METERS • DOGLEG RIGHT</span>
+        </div>
+      </div>
+    </div>
+
     <canvas id="renderCanvas" touch-action="none"></canvas>
     <script type="module" src="/src/main.ts"></script>
   </body>

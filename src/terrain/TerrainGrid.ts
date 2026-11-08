@@ -464,35 +464,33 @@ export class TerrainGrid {
         const baseRad = Math.hypot(halfW * Math.cos(theta), halfL * Math.sin(theta)) * k;
         const rMeters = Math.hypot(localX, localZ);
 
-        // Constant uniform physical metric dimensions across all angles:
-        // Sand bed radius: 84% of base contour
-        const rSand = baseRad * 0.84;
-        // Refined, narrower revetted sod lip (0.80m uniform width)
-        const lipWidth = 0.80;
+        // Defined revetted sod lip (1.35m uniform width) & C1 continuous elevation profile (zero black shading artifacts)
+        const rSand = baseRad * 0.82;
+        const lipWidth = 1.35;
         const rLipRim = rSand + lipWidth;
-        const rCollar = rLipRim + 0.85;
+        const collarWidth = 1.20;
+        const rCollar = rLipRim + collarWidth;
 
         if (rMeters < rCollar) {
-          const effDepth = Math.max(-0.95, Math.min(-0.65, feat.depthProfile || -0.80));
+          const effDepth = -0.65;
           const centerBaseY = feat.baseElevation ?? h;
-          // Unified rim height: consistent revetted sod rim rise above local terrain and base
-          const rimY = Math.max(centerBaseY - 0.20, h) + 0.12;
+          const rimY = Math.max(centerBaseY - 0.15, h) + 0.18;
           const sandFloorY = centerBaseY + effDepth;
-          const sandEdgeY = sandFloorY + 0.32;
+          const sandEdgeY = sandFloorY + 0.28;
 
           if (rMeters <= rSand) {
-            // Gentle concave sand basin
+            // Smooth C1 concave sand basin reaching sandEdgeY with zero height step or normal discontinuity
             const normR = rMeters / Math.max(0.5, rSand);
-            const bowl = Math.cos(normR * Math.PI * 0.22);
-            h = sandFloorY + (sandEdgeY - sandFloorY) * (1.0 - bowl);
+            const bowl = 0.5 * (1.0 - Math.cos(normR * Math.PI));
+            h = sandFloorY + (sandEdgeY - sandFloorY) * bowl;
           } else if (rMeters <= rLipRim) {
-            // Constant 0.80m wide revetted sod lip with consistent elevation rise across all slopes
+            // Defined 1.35m wide revetted sod lip rising continuously from sandEdgeY to rimY
             const tLip = (rMeters - rSand) / lipWidth;
             const sCurve = 0.5 * (1.0 - Math.cos(tLip * Math.PI));
             h = sandEdgeY * (1.0 - sCurve) + rimY * sCurve;
           } else {
-            // Smooth collar blend into surrounding terrain
-            const tCollar = (rMeters - rLipRim) / 0.85;
+            // Smooth collar blend into surrounding fairway/rough terrain
+            const tCollar = (rMeters - rLipRim) / collarWidth;
             const blend = 0.5 * (1.0 - Math.cos(tCollar * Math.PI));
             h = rimY * (1.0 - blend) + h * blend;
           }
@@ -729,13 +727,8 @@ export class TerrainGrid {
     const z = b0 * p0.z + b1 * p1.z + b2 * p2.z + b3 * p3.z;
     const baseWidth = b0 * p0.width + b1 * p1.width + b2 * p2.width + b3 * p3.width;
 
-    const uStart = Math.min(1.0, Math.max(0.0, t / 0.15));
-    const uEnd = Math.min(1.0, Math.max(0.0, (1.0 - t) / 0.15));
-    const startTaper = Math.sqrt(Math.max(0, 2.0 * uStart - uStart * uStart));
-    const endTaper = Math.sqrt(Math.max(0, 2.0 * uEnd - uEnd * uEnd));
-    const envelope = startTaper * endTaper;
-
     // Authentic AAA PGA-style organic fairway contour (drive landing swell, dogleg pinch, approach bay)
+    // Full width maintained at ends so 180-deg rounded caps produce 100% uniform fringe collars without pinching
     const driveSwell = 0.16 * Math.exp(-Math.pow((t - 0.34) / 0.16, 2));
     const doglegPinchRight = -0.18 * Math.exp(-Math.pow((t - 0.46) / 0.11, 2));
     const outerElbowSwellLeft = 0.14 * Math.exp(-Math.pow((t - 0.58) / 0.15, 2));
@@ -745,8 +738,8 @@ export class TerrainGrid {
     const leftMod = 1.0 + driveSwell + outerElbowSwellLeft + 0.04 * Math.sin(t * Math.PI * 3.0);
     const rightMod = 1.0 + driveSwell + doglegPinchRight + waterPinchRight + approachLobe;
 
-    const leftW = baseWidth * 0.5 * envelope * leftMod;
-    const rightW = baseWidth * 0.5 * envelope * rightMod;
+    const leftW = baseWidth * 0.5 * leftMod;
+    const rightW = baseWidth * 0.5 * rightMod;
 
     const d0 = -3 * u * u;
     const d1 = 3 * u * u - 6 * u * t;
@@ -880,13 +873,15 @@ export class TerrainGrid {
           const k = TerrainGrid.getBunkerRadiusFactor(theta, effBunkerShape);
           const baseRad = Math.hypot(halfW * Math.cos(theta), halfL * Math.sin(theta)) * k;
           const rMeters = Math.hypot(localX, localZ);
-          const rSand = baseRad * 0.84;
-          const lipWidth = 1.25;
+          const rSand = baseRad * 0.82;
+          const lipWidth = 1.35;
 
           if (rMeters <= rSand) {
             this.surfaceTypes[idx] = SurfaceType.BUNKER;
           } else if (rMeters <= rSand + lipWidth && this.surfaceTypes[idx] !== SurfaceType.BUNKER && this.surfaceTypes[idx] !== SurfaceType.WATER) {
             this.surfaceTypes[idx] = SurfaceType.FRINGE;
+          } else if (rMeters <= rSand + lipWidth + 1.20 && this.surfaceTypes[idx] === SurfaceType.ROUGH) {
+            this.surfaceTypes[idx] = SurfaceType.FIRST_CUT;
           }
           continue;
         }
@@ -1229,6 +1224,7 @@ export class TerrainGrid {
     sX: number,
     sZ: number,
     firstCutPattern: CanvasPattern,
+    fringePattern: CanvasPattern,
     fairwayPattern: CanvasPattern
   ) {
     const samples = 260;
@@ -1251,22 +1247,21 @@ export class TerrainGrid {
       fairwayLoopMeters.push(leftPtsMeters[i]);
     }
 
-    // Smooth 180-deg elliptical rounded end-cap at the green end (t = 1) — eliminates sharp geometric corners
+    // Smooth 180-deg rounded end-cap at the green end (t = 1) across full fairway width
     const spEnd = this.evaluateSpline(points, 1.0);
     const nEndX = -spEnd.tz;
     const nEndZ = spEnd.tx;
-    const midEndX = spEnd.x + nEndX * (spEnd.leftW - spEnd.rightW) * 0.5;
-    const midEndZ = spEnd.z + nEndZ * (spEnd.leftW - spEnd.rightW) * 0.5;
     const rEnd = (spEnd.leftW + spEnd.rightW) * 0.5;
-    const dEnd = rEnd * 0.68;
+    const dEnd = rEnd * 0.70;
     const capSegs = 36;
     for (let k = 1; k < capSegs; k++) {
       const phi = (k / capSegs) * Math.PI;
       const cosP = Math.cos(phi);
       const sinP = Math.sin(phi);
+      const curW = spEnd.leftW * (1 - k / capSegs) + spEnd.rightW * (k / capSegs);
       fairwayLoopMeters.push({
-        x: midEndX + nEndX * (cosP * rEnd) + spEnd.tx * (sinP * dEnd),
-        z: midEndZ + nEndZ * (cosP * rEnd) + spEnd.tz * (sinP * dEnd)
+        x: spEnd.x + nEndX * (cosP * curW) + spEnd.tx * (sinP * dEnd),
+        z: spEnd.z + nEndZ * (cosP * curW) + spEnd.tz * (sinP * dEnd)
       });
     }
 
@@ -1274,29 +1269,34 @@ export class TerrainGrid {
       fairwayLoopMeters.push(rightPtsMeters[i]);
     }
 
-    // Smooth 180-deg elliptical rounded end-cap at the tee end (t = 0) — eliminates sharp geometric corners
+    // Smooth 180-deg rounded end-cap at the tee end (t = 0) across full fairway width
     const spStart = this.evaluateSpline(points, 0.0);
     const nStartX = -spStart.tz;
     const nStartZ = spStart.tx;
-    const midStartX = spStart.x + nStartX * (spStart.leftW - spStart.rightW) * 0.5;
-    const midStartZ = spStart.z + nStartZ * (spStart.leftW - spStart.rightW) * 0.5;
     const rStart = (spStart.leftW + spStart.rightW) * 0.5;
-    const dStart = rStart * 0.68;
+    const dStart = rStart * 0.70;
     for (let k = 1; k < capSegs; k++) {
       const phi = (k / capSegs) * Math.PI;
       const cosP = Math.cos(phi);
       const sinP = Math.sin(phi);
+      const curW = spStart.rightW * (1 - k / capSegs) + spStart.leftW * (k / capSegs);
       fairwayLoopMeters.push({
-        x: midStartX - nStartX * (cosP * rStart) - spStart.tx * (sinP * dStart),
-        z: midStartZ - nStartZ * (cosP * rStart) - spStart.tz * (sinP * dStart)
+        x: spStart.x - nStartX * (cosP * curW) - spStart.tx * (sinP * dStart),
+        z: spStart.z - nStartZ * (cosP * curW) - spStart.tz * (sinP * dStart)
       });
     }
 
-    // 1. Continuous Uniform +3.2m First-Cut Ring surrounding the ENTIRE fairway loop
-    // (Strictly constant uniform width everywhere with ZERO pinching at joins or ends!)
-    const fairwayFringeRing = this.computeUniformOffsetPolygon(fairwayLoopMeters, 3.2);
-    this.traceLocalMeterPolygon(ctx, fairwayFringeRing, 0, 0, 0, sX, sZ);
+    // 1. Continuous Uniform +4.2m First-Cut Ring surrounding the entire fairway loop
+    // Strictly constant uniform width everywhere with ZERO pinching at joins or ends!
+    const fairwayFirstCutRing = this.computeUniformOffsetPolygon(fairwayLoopMeters, 4.2);
+    this.traceLocalMeterPolygon(ctx, fairwayFirstCutRing, 0, 0, 0, sX, sZ);
     ctx.fillStyle = firstCutPattern;
+    ctx.fill();
+
+    // 1b. Continuous Uniform +2.0m Fringe Ring surrounding the fairway loop
+    const fairwayFringeRing = this.computeUniformOffsetPolygon(fairwayLoopMeters, 2.0);
+    this.traceLocalMeterPolygon(ctx, fairwayFringeRing, 0, 0, 0, sX, sZ);
+    ctx.fillStyle = fringePattern;
     ctx.fill();
 
     // 2. Continuous AAA Dogleg Fairway Body
@@ -1341,6 +1341,7 @@ export class TerrainGrid {
         sX,
         sZ,
         patterns.firstCutPattern,
+        patterns.fringePattern,
         patterns.fairwayPattern
       );
       return;
@@ -1400,32 +1401,38 @@ export class TerrainGrid {
       ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.BUNKER) {
-      // PGA Tour 2K25 organic bunker style: varied multi-lobed silhouettes, narrower 0.80m lip & silky smooth texture blending
+      // PGA Tour 2K25 organic bunker style: defined 1.35m revetted sod lip & silky smooth texture blending
       const shapeIdx = feat.bunkerShapeIndex ?? (Math.floor(feat.centerX * 0.35 + feat.centerZ * 0.65) % 5);
-      const baseSandPts = this.generateKidneyMeterPoints(halfW, halfL, 0.84, shapeIdx, 192);
-      const subtleCollarPts = this.computeUniformOffsetPolygon(baseSandPts, 0.80);
+      const baseSandPts = this.generateKidneyMeterPoints(halfW, halfL, 0.82, shapeIdx, 256);
+      const lipPts = this.computeUniformOffsetPolygon(baseSandPts, 1.35);
+      const outerCollarPts = this.computeUniformOffsetPolygon(baseSandPts, 2.30);
 
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
-      // 1. Smooth manicured turf collar around the bunker edge (+0.80m)
-      this.traceLocalMeterPolygon(ctx, subtleCollarPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.fillStyle = patterns.fringePattern;
+      // 1. Smooth manicured outer collar (+2.30m)
+      this.traceLocalMeterPolygon(ctx, outerCollarPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
+      ctx.fillStyle = patterns.firstCutPattern;
       ctx.fill();
 
-      // 2. Pure sand bed filled seamlessly with equalized bunker_sand_01.jpg
+      // 2. Defined revetted sod lip ring (+1.35m uniform width)
+      this.traceLocalMeterPolygon(ctx, lipPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
+      ctx.fillStyle = patterns.fringePattern;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(26, 52, 16, 0.35)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      // 3. Pure seamless sand bed
       this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
       ctx.fillStyle = patterns.sandPattern;
       ctx.fill();
 
-      // 3. Super smooth sand-to-grass blend transition (zero jagged edges, zero fake dark rectangular artifacts)
-      // Real soft 3D lip shadows are cast dynamically by CascadedShadowGenerator
+      // 4. Silky-smooth sand-to-lip transitional blend (zero dark artifacts)
       ctx.save();
-      this.traceLocalMeterPolygon(ctx, subtleCollarPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.clip();
       this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.strokeStyle = patterns.sandPattern;
-      ctx.lineWidth = 1.2 * sX;
+      ctx.strokeStyle = 'rgba(235, 224, 198, 0.65)';
+      ctx.lineWidth = 2.0 * sX;
       ctx.stroke();
       ctx.restore();
 
@@ -1542,8 +1549,9 @@ export class TerrainGrid {
               const sinR = Math.sin(-feat.rotationRad);
               const lx = dx * cosR - dz * sinR;
               const lz = dx * sinR + dz * cosR;
-              const { dist } = TerrainGrid.computeKidneyDist(lx, lz, halfW, halfL);
-              if (dist <= 1.55) {
+              const shapeIdx = feat.bunkerShapeIndex ?? (Math.floor(feat.centerX * 0.35 + feat.centerZ * 0.65) % 5);
+              const { dist } = TerrainGrid.computeKidneyDist(lx, lz, halfW, halfL, shapeIdx);
+              if (dist <= 1.85) {
                 isSub = true;
                 break;
               }
@@ -1673,6 +1681,8 @@ export class TerrainGrid {
               let nx = (hL - hR) / (2 * eps);
               let ny = 1.0;
               let nz = (hD - hU) / (2 * eps);
+              // Clamp upward normal to guarantee slope receives sunlight without pitch-black diffuse shadows
+              ny = Math.max(0.68, ny);
               const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1.0;
 
               this.normals[pIdx] = nx / len;

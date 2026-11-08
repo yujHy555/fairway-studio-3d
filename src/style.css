@@ -1092,3 +1092,131 @@ html, body {
   background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
 }
+
+/* ==========================================================================
+   PGA Tour Championship Preloader
+   ========================================================================== */
+.game-preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center 40%, #152216 0%, #0c140d 60%, #060906 100%);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.65s;
+  pointer-events: all;
+  user-select: none;
+}
+
+.game-preloader.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.preloader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 480px;
+  width: 90%;
+  padding: 40px;
+  background: rgba(14, 24, 15, 0.75);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.preloader-crest {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #2d4a2b 0%, #132414 100%);
+  border: 2px solid rgba(212, 175, 55, 0.65);
+  box-shadow: 0 0 24px rgba(212, 175, 55, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  margin-bottom: 16px;
+  animation: crestPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes crestPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(212, 175, 55, 0.3); }
+  50% { transform: scale(1.05); box-shadow: 0 0 32px rgba(212, 175, 55, 0.55); }
+}
+
+.preloader-brand {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  color: #f8fafc;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  margin-bottom: 4px;
+}
+
+.preloader-tour-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #d4af37;
+  margin-bottom: 28px;
+}
+
+.preloader-progress-container {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.preloader-progress-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.preloader-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #d4af37 0%, #f6e05e 50%, #d4af37 100%);
+  border-radius: 6px;
+  box-shadow: 0 0 14px rgba(246, 224, 94, 0.65);
+  transition: width 0.28s ease-out;
+}
+
+.preloader-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.preloader-status {
+  letter-spacing: 0.4px;
+}
+
+.preloader-percent {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.preloader-course-info {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #64748b;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  width: 100%;
+}
+

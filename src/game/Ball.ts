@@ -297,12 +297,40 @@ export class Ball {
       const dx = bx - tree.x;
       const dz = bz - tree.z;
       const distSq = dx * dx + dz * dz;
-      const maxDist = tree.canopyRadius + 1.2;
+      const effRadius = Math.max(tree.trunkRadius, tree.canopyRadius);
+      const maxDist = effRadius + 1.6;
       if (distSq > maxDist * maxDist) continue;
 
       const horizDist = Math.sqrt(distSq) || 0.001;
+      const isRockOrCliff = tree.canopyRadius === 0;
 
-      // 1. Solid Trunk cylinder collision
+      // 1. Solid Rock / Cliff barrier collision (High-energy elastic ricochet)
+      if (isRockOrCliff) {
+        if (by >= tree.y - 0.5 && by <= tree.y + tree.trunkHeight + 0.6) {
+          const minDist = tree.trunkRadius + r;
+          if (horizDist < minDist) {
+            const nx = dx / horizDist;
+            const nz = dz / horizDist;
+            this.mesh.position.x = tree.x + nx * (minDist + 0.06);
+            this.mesh.position.z = tree.z + nz * (minDist + 0.06);
+
+            const vDotN = this.curVelocity.x * nx + this.curVelocity.z * nz;
+            if (vDotN < 0) {
+              const rockRestitution = 0.88; // Realistic hard granite elastic rebound
+              const horizSpeed = Math.hypot(this.curVelocity.x, this.curVelocity.z);
+              this.curVelocity.x = (this.curVelocity.x - (1 + rockRestitution) * vDotN * nx) * 0.94;
+              this.curVelocity.z = (this.curVelocity.z - (1 + rockRestitution) * vDotN * nz) * 0.94;
+              // Major upward deflection kick off the angled rock face
+              this.curVelocity.y = Math.max(5.2, Math.abs(this.curVelocity.y) * 0.86 + horizSpeed * 0.42);
+              soundFx.playBounce('fairway', 1.0);
+              return true;
+            }
+          }
+        }
+        continue;
+      }
+
+      // 2. Solid Tree Trunk cylinder collision
       if (by >= tree.y - 0.25 && by <= tree.y + tree.trunkHeight) {
         const minDist = tree.trunkRadius + r;
         if (horizDist < minDist) {
@@ -323,7 +351,7 @@ export class Ball {
         }
       }
 
-      // 2. Foliage Canopy / Branch deflection
+      // 3. Foliage Canopy / Branch deflection
       if (by >= tree.canopyBottomY && by <= tree.canopyTopY) {
         const t = (by - tree.canopyBottomY) / (tree.canopyTopY - tree.canopyBottomY);
         const radiusAtHeight = tree.canopyRadius * (tree.isHero ? Math.sin(t * Math.PI) * 0.95 + 0.15 : (1.0 - t * 0.72));
