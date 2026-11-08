@@ -63,22 +63,23 @@ export class CourseManager {
     this.terrain.stampFeature(cx, 150, 42, 130, 0, SurfaceType.FAIRWAY);
     this.terrain.stampFeature(cx, 260, 38, 120, 0, SurfaceType.FAIRWAY);
 
-    // 3. Right Fairway Bunker at Z=190
-    this.terrain.stampFeature(cx + 20, 195, 12, 22, 0.2, SurfaceType.BUNKER, -0.85, 0.2);
+    // 3. Right Fairway Bunker at Z=190 (Championship deep pot bunker with raised lip)
+    this.terrain.stampFeature(cx + 20, 195, 14, 24, 0.2, SurfaceType.BUNKER, -1.25, 0.60);
 
     // 4. Left Fairway Bunker at Z=240
-    this.terrain.stampFeature(cx - 22, 245, 14, 26, -0.3, SurfaceType.BUNKER, -0.9, 0.25);
+    this.terrain.stampFeature(cx - 22, 245, 16, 28, -0.3, SurfaceType.BUNKER, -1.35, 0.65);
 
     // 5. Scenic Water Hazard Pond on right side between Z=260 and Z=300
-    this.terrain.stampFeature(cx + 34, 280, 26, 45, 0.1, SurfaceType.WATER, -2.0);
-    const pondWater = this.scenery.createWaterPlane(cx + 34, this.terrain.getElevation(cx + 34, 280), 280, 24, 42);
+    const pondRimElevation = this.terrain.getElevation(cx + 34, 280);
+    this.terrain.stampFeature(cx + 34, 280, 26, 45, 0.1, SurfaceType.WATER, -2.4);
+    const pondWater = this.scenery.createWaterPlane(cx + 34, pondRimElevation, 280, 24, 42);
     this.sceneryMeshes.push(pondWater);
 
     // 6. Tournament Green at Z=360
     this.terrain.stampFeature(cx, 360, 26, 34, 0, SurfaceType.GREEN, 0.35);
 
     // 7. Greenside Pot Bunker guarding left pin approach
-    this.terrain.stampFeature(cx - 15, 355, 7, 9, 0.4, SurfaceType.BUNKER, -1.1, 0.35);
+    this.terrain.stampFeature(cx - 15, 355, 9, 12, 0.4, SurfaceType.BUNKER, -1.45, 0.75);
 
     // 8. Low-poly Pine and Oak trees lining the rough
     const treePositions = [

@@ -51,6 +51,10 @@ export class Ball {
   private tracerMesh: Mesh | null = null;
   private tracerMaterial: StandardMaterial;
 
+  // Dedicated Ground Contact Shadow
+  public contactShadowMesh: Mesh;
+  private contactShadowMat: StandardMaterial;
+
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
   public onHoleComplete?: () => void;
@@ -72,6 +76,21 @@ export class Ball {
     mat.specularPower = 96;
     mat.emissiveColor = new Color3(0.08, 0.08, 0.08); // Subtle visibility against dark grass
     this.mesh.material = mat;
+
+    // Dedicated soft ground contact shadow disc draped on terrain beneath ball
+    this.contactShadowMesh = MeshBuilder.CreateDisc('ballContactShadow', {
+      radius: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 1.75,
+      tessellation: 24
+    }, this.scene);
+    this.contactShadowMesh.rotation.x = Math.PI / 2;
+    this.contactShadowMat = new StandardMaterial('ballContactShadowMat', this.scene);
+    this.contactShadowMat.diffuseColor = new Color3(0, 0, 0);
+    this.contactShadowMat.emissiveColor = new Color3(0, 0, 0);
+    this.contactShadowMat.specularColor = new Color3(0, 0, 0);
+    this.contactShadowMat.disableLighting = true;
+    this.contactShadowMat.alpha = 0.65;
+    this.contactShadowMesh.material = this.contactShadowMat;
+    this.contactShadowMesh.isPickable = false;
 
     // Toptracer luminous ribbon material
     this.tracerMaterial = new StandardMaterial('toptracerMat', this.scene);
@@ -100,10 +119,12 @@ export class Ball {
   }
 
   public setPosition(x: number, y: number, z: number) {
-    const minGroundY = this.terrain.getElevation(x, z) + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+    const groundY = this.terrain.getElevation(x, z);
+    const minGroundY = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
     const finalY = Math.max(minGroundY, y);
 
     this.mesh.position.set(x, finalY, z);
+    this.contactShadowMesh.position.set(x, groundY + 0.012, z);
     this.curVelocity = { x: 0, y: 0, z: 0 };
     this.curSpin = { x: 0, y: 0, z: 0 };
     this.currentLie = this.terrain.getSurfaceAt(x, z);
@@ -121,10 +142,8 @@ export class Ball {
     this.clearTracer();
     this.flightTime = 0;
     this.atRestCounter = 0;
-    this.hasLanded = false;
     this.carryDistance = 0;
     this.totalDistance = 0;
-    this.state = BallState.IN_FLIGHT;
 
     // Record shot start position for distance calculation
     this.shotOrigin = {
@@ -141,6 +160,29 @@ export class Ball {
     };
 
     const initial = Aerodynamics.calculateInitialVectors(shot);
+
+    // If putter, initiate true ground rolling without airborne flight
+    if (shot.club.category === 'putter') {
+      this.state = BallState.ROLLING;
+      this.hasLanded = true;
+      this.curVelocity = {
+        x: initial.velocity.x,
+        y: 0,
+        z: initial.velocity.z
+      };
+      this.curSpin = { x: 0, y: 0, z: 0 };
+
+      const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
+      this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+
+      this.addTracerPoint(this.mesh.position.clone());
+      soundFx.playClubImpact(shot.club.category, shot.powerPercent);
+      this.onStateChange?.(this.state, this.currentLie);
+      return;
+    }
+
+    this.state = BallState.IN_FLIGHT;
+    this.hasLanded = false;
     this.curVelocity = initial.velocity;
     this.curSpin = initial.spinVec;
 
@@ -160,6 +202,15 @@ export class Ball {
 
   private update(dt: number) {
     if (dt <= 0 || dt > 0.1) dt = 0.016;
+
+    // Always keep contact shadow firmly placed on the terrain directly underneath ball
+    const groundUnderBall = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
+    const altitude = Math.max(0, this.mesh.position.y - (groundUnderBall + GOLF_CONSTANTS.BALL_RENDER_RADIUS));
+    this.contactShadowMesh.position.set(this.mesh.position.x, groundUnderBall + 0.012, this.mesh.position.z);
+    const shadowAlpha = Math.max(0, 0.65 * (1.0 - altitude / 12.0));
+    const shadowScale = 1.0 + altitude * 0.25;
+    this.contactShadowMat.alpha = shadowAlpha;
+    this.contactShadowMesh.scaling.set(shadowScale, shadowScale, 1);
 
     if (this.state === BallState.IN_FLIGHT) {
       this.flightTime += dt;
@@ -215,12 +266,14 @@ export class Ball {
       const slopeForceX = -normal.x * 9.81;
       const slopeForceZ = -normal.z * 9.81;
 
-      // Realistic rolling friction with clean settling
+      // Authentic physics-based linear deceleration with slope drift
       const speed = Math.sqrt(this.curVelocity.x * this.curVelocity.x + this.curVelocity.z * this.curVelocity.z);
-      const frictionDecay = Math.max(0, 1.0 - (props.rollingResistance * 6.5 + 0.55) * dt);
+      const decel = (props.rollingResistance * 9.81 + 0.14) * dt;
+      const newSpeed = Math.max(0, speed - decel);
+      const speedFactor = speed > 0.001 ? newSpeed / speed : 0;
 
-      this.curVelocity.x = (this.curVelocity.x + slopeForceX * dt) * frictionDecay;
-      this.curVelocity.z = (this.curVelocity.z + slopeForceZ * dt) * frictionDecay;
+      this.curVelocity.x = (this.curVelocity.x + slopeForceX * dt) * speedFactor;
+      this.curVelocity.z = (this.curVelocity.z + slopeForceZ * dt) * speedFactor;
 
       this.mesh.position.x += this.curVelocity.x * dt;
       this.mesh.position.z += this.curVelocity.z * dt;
@@ -238,9 +291,9 @@ export class Ball {
         const pinDz = this.mesh.position.z - this.activePinPosition.z;
         const distToCup = Math.sqrt(pinDx * pinDx + pinDz * pinDz);
 
-        if (distToCup <= GOLF_CONSTANTS.CUP_RADIUS * 1.35) {
-          if (speed <= 4.2) {
-            // Ball drops into the hole!
+        if (distToCup <= GOLF_CONSTANTS.CUP_RADIUS * 1.4) {
+          if (speed <= 4.8) {
+            // Ball drops cleanly into the hole!
             this.state = BallState.IN_HOLE;
             this.curVelocity = { x: 0, y: 0, z: 0 };
             this.mesh.position.set(
@@ -253,7 +306,7 @@ export class Ball {
             this.onHoleComplete?.();
             this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });
             return;
-          } else if (speed < 6.5) {
+          } else if (speed < 6.8) {
             // High speed lip-out deflection
             this.curVelocity.x *= -0.35;
             this.curVelocity.z *= -0.35;
@@ -284,10 +337,10 @@ export class Ball {
         return;
       }
 
-      // Decisive ball settling: stop creeping when speed drops below 0.45 m/s
-      if (speed < 0.45) {
+      // Decisive ball settling: stop creeping when speed drops below 0.18 m/s
+      if (newSpeed < 0.18) {
         this.atRestCounter += dt;
-        if (this.atRestCounter > 0.12) {
+        if (this.atRestCounter > 0.10) {
           this.state = BallState.AT_REST;
           this.curVelocity = { x: 0, y: 0, z: 0 };
           this.clearTracer();
@@ -423,5 +476,12 @@ export class Ball {
       this.tracerMesh.dispose();
       this.tracerMesh = null;
     }
+  }
+
+  public dispose() {
+    this.clearTracer();
+    this.contactShadowMesh.dispose();
+    this.contactShadowMat.dispose();
+    this.mesh.dispose();
   }
 }

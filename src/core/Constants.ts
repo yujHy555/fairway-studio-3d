@@ -36,8 +36,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
     name: 'Fairway',
     color: [0.38, 0.70, 0.28],     // Crisp bright fairway green
     restitution: 0.30,
-    friction: 0.45,
-    rollingResistance: 0.38,       // Natural rollout and decisive stop
+    friction: 0.40,
+    rollingResistance: 0.28,       // Natural rollout and decisive stop
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
@@ -45,8 +45,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
     name: 'Green',
     color: [0.28, 0.78, 0.38],     // Silky manicured putting green
     restitution: 0.38,
-    friction: 0.25,
-    rollingResistance: 0.24,       // Tournament stimp speed with clean deceleration
+    friction: 0.18,
+    rollingResistance: 0.08,       // Tournament stimp speed allowing full-range putts
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },

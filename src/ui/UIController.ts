@@ -258,10 +258,10 @@ export class UIController {
               <span class="swing-main-btn-text">SWING [SPACE]</span>
             </button>
             <div class="hud-aim-controls">
-              <button id="btn-aim-left" class="btn btn-sm">⟲ Aim Left [A]</button>
-              <button id="btn-aim-right" class="btn btn-sm">Aim Right [D] ⟳</button>
-              <button id="btn-target-closer" class="btn btn-sm">🎯 Target - [S]</button>
-              <button id="btn-target-farther" class="btn btn-sm">Target + [W]</button>
+              <button id="btn-aim-left" class="btn btn-sm">◀ Aim Left [← / A]</button>
+              <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
+              <button id="btn-target-closer" class="btn btn-sm">🎯 Distance - [↓]</button>
+              <button id="btn-target-farther" class="btn btn-sm">Distance + [↑]</button>
               <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
               <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
             </div>

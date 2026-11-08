@@ -29,6 +29,7 @@ import { CameraController } from './game/CameraController';
 import { CourseManager } from './game/CourseManager';
 import { AimSystem } from './game/AimSystem';
 import { UIController } from './ui/UIController';
+import { DesignerBrushVisualizer } from './terrain/DesignerBrushVisualizer';
 
 class FairwayStudioApp {
   private canvas: HTMLCanvasElement;
@@ -44,6 +45,7 @@ class FairwayStudioApp {
   private ball!: Ball;
   private swingEngine!: SwingEngine;
   private aimSystem!: AimSystem;
+  private brushVisualizer!: DesignerBrushVisualizer;
   private cameraCtrl!: CameraController;
   private ui!: UIController;
   private shadowGenerator: ShadowGenerator | null = null;
@@ -109,10 +111,13 @@ class FairwayStudioApp {
     this.ball = new Ball(this.scene, this.terrain);
     this.swingEngine = new SwingEngine(this.activeClub);
 
-    // 8. AAA Aim System (Target beacon, dispersion ring, aerodynamic prediction arc)
+    // 8. AAA Aim System (Target beacon & dispersion ring)
     this.aimSystem = new AimSystem(this.scene, this.terrain);
 
-    // 9. Setup UI & Event Handlers (must be initialized before placeBallAtActiveTee)
+    // 9. Interactive 3D Circular Brush Visualizer for Course Designer
+    this.brushVisualizer = new DesignerBrushVisualizer(this.scene, this.terrain);
+
+    // 10. Setup UI & Event Handlers (must be initialized before placeBallAtActiveTee)
     this.setupUI();
 
     // Ball casts shadows
@@ -174,17 +179,17 @@ class FairwayStudioApp {
 
     // 2. Ambient Sky & Ground light
     const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
-    hemiLight.intensity = 0.38;
-    hemiLight.diffuse = new Color3(0.92, 0.96, 1.0);
-    hemiLight.groundColor = new Color3(0.24, 0.32, 0.18);
+    hemiLight.intensity = 0.32;
+    hemiLight.diffuse = new Color3(0.90, 0.95, 1.0);
+    hemiLight.groundColor = new Color3(0.20, 0.28, 0.16);
 
     // 3. Warm Sun Directional Light with optimal casting angle across course
     const courseCenter = new Vector3(110, 8, 210);
     const lightDir = new Vector3(-0.35, -0.72, 0.59).normalize();
     const sun = new DirectionalLight('sunLight', lightDir, this.scene);
     sun.position = courseCenter.subtract(lightDir.scale(320));
-    sun.intensity = 1.75;
-    sun.diffuse = new Color3(1.0, 0.97, 0.88); // Golden hour sun
+    sun.intensity = 1.50; // Balanced sun lighting avoiding blowout
+    sun.diffuse = new Color3(1.0, 0.97, 0.90); // Golden hour sun
 
     // Precise orthographic shadow bounds focused on active golf hole (220m x 460m)
     sun.autoCalcShadowZBounds = true;
@@ -201,9 +206,9 @@ class FairwayStudioApp {
       this.shadowGenerator = new ShadowGenerator(2048, sun);
       this.shadowGenerator.usePercentageCloserFiltering = true;
       this.shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_HIGH;
-      this.shadowGenerator.bias = 0.0006;
-      this.shadowGenerator.normalBias = 0.012;
-      this.shadowGenerator.darkness = 0.18; // Crisp, rich, visible soft shadows across the hole
+      this.shadowGenerator.bias = 0.0004;
+      this.shadowGenerator.normalBias = 0.008;
+      this.shadowGenerator.darkness = 0.20; // Crisp, rich, visible soft shadows across the hole
     } catch (e) {
       console.warn('ShadowGenerator initialization fallback:', e);
     }
@@ -222,14 +227,23 @@ class FairwayStudioApp {
         m.name !== 'greenContourLineGrid' &&
         !m.name.startsWith('aim') &&
         !m.name.startsWith('trajectory') &&
+        !m.name.startsWith('designerBrush') &&
+        m.name !== 'ballContactShadow' &&
+        !m.name.includes('_shadow_') &&
         m.getTotalVertices() > 0
       ) {
         try {
-          this.shadowGenerator.addShadowCaster(m, false);
+          this.shadowGenerator.addShadowCaster(m, true);
         } catch {
           // ignore mesh if unsupported
         }
       }
+    }
+
+    if (this.ball?.mesh) {
+      try {
+        this.shadowGenerator.addShadowCaster(this.ball.mesh, true);
+      } catch {}
     }
   }
 
@@ -266,6 +280,9 @@ class FairwayStudioApp {
       this.ui.setSwingEnabled(true);
     }
 
+    // Refresh shadow casters whenever hole visuals or ball moves
+    this.registerSceneryShadows();
+
     this.updateHUDDisplay();
   }
 
@@ -276,9 +293,12 @@ class FairwayStudioApp {
         if (mode === 'designer') {
           this.cameraCtrl.setMode('designer');
           if (this.aimSystem) this.aimSystem.setVisible(false);
+          this.brushVisualizer.setVisible(true);
+          this.updateBrushVisualizerConfig();
         } else {
           this.cameraCtrl.setMode('aim');
           this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+          this.brushVisualizer.setVisible(false);
           if (this.aimSystem) {
             this.aimSystem.setVisible(true);
             this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
@@ -287,16 +307,20 @@ class FairwayStudioApp {
       },
       onToolSelect: (tool) => {
         this.activeDesignerTool = tool;
+        this.updateBrushVisualizerConfig();
       },
       onSculptModeSelect: (mode) => {
         this.activeSculptMode = mode;
+        this.updateBrushVisualizerConfig();
       },
       onPresetSelect: (preset) => {
         this.activePreset = preset;
         this.activeDesignerTool = 'stamp';
+        this.updateBrushVisualizerConfig();
       },
       onBrushRadiusChange: (radius) => {
         this.brushRadius = radius;
+        this.updateBrushVisualizerConfig();
       },
       onBrushStrengthChange: (strength) => {
         this.brushStrength = strength;
@@ -643,42 +667,52 @@ class FairwayStudioApp {
     }
   }
 
+  private updateBrushVisualizerConfig() {
+    if (!this.brushVisualizer) return;
+    const presetDims = this.activePreset ? { width: this.activePreset.width, length: this.activePreset.length } : undefined;
+    this.brushVisualizer.setConfig(
+      this.activeDesignerTool,
+      this.activeSculptMode,
+      this.brushRadius,
+      presetDims
+    );
+  }
+
   private setupPointerInteractions() {
     this.scene.onPointerObservable.add((pointerInfo) => {
-      if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
-        this.isPointerDown = true;
-        this.pointerDownClientX = pointerInfo.event.clientX;
-        this.pointerDownClientY = pointerInfo.event.clientY;
+      if (this.activeMode === 'designer') {
+        if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
+          const pick = this.scene.pick(
+            this.scene.pointerX,
+            this.scene.pointerY,
+            (m) => m.name === 'GolfTerrain'
+          );
+          if (pick && pick.hit && pick.pickedPoint) {
+            this.brushVisualizer.setVisible(true);
+            this.brushVisualizer.updatePosition(pick.pickedPoint);
+          } else {
+            this.brushVisualizer.setVisible(false);
+          }
 
-        if (this.activeMode === 'designer') {
-          this.handleDesignerClick(pointerInfo);
-        }
-      } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
-        this.isPointerDown = false;
-        const dragDist = Math.hypot(
-          pointerInfo.event.clientX - this.pointerDownClientX,
-          pointerInfo.event.clientY - this.pointerDownClientY
-        );
-
-        if (this.activeMode === 'play' && dragDist < 8 && this.ball.state === BallState.AT_REST) {
-          const pick = pointerInfo.pickInfo;
-          if (pick && pick.hit && pick.pickedPoint && pick.pickedMesh?.name === 'GolfTerrain') {
-            const pt = pick.pickedPoint;
-            const dx = pt.x - this.ball.position.x;
-            const dz = pt.z - this.ball.position.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist > 2) {
-              this.aimSystem.setTargetPosition(this.ball.position, pt.x, pt.z);
-              this.currentAimAzimuth = this.aimSystem.aimHeadingDeg;
-              this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
-              this.cameraCtrl.setAimHeading(this.ball.position, this.currentAimAzimuth);
-              this.updateHUDDisplay();
-            }
+          if (this.isPointerDown && this.activeDesignerTool === 'sculpt') {
+            this.handleDesignerClick(pointerInfo);
+          }
+        } else if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
+          // Left-click (button 0): cleanly triggers placement or sculpting.
+          // Right-click (button 2): camera drag/orbit without modifying terrain!
+          if (pointerInfo.event.button === 0) {
+            this.isPointerDown = true;
+            this.handleDesignerClick(pointerInfo);
+          }
+        } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
+          if (pointerInfo.event.button === 0) {
+            this.isPointerDown = false;
           }
         }
-      } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
-        if (this.isPointerDown && this.activeMode === 'designer' && this.activeDesignerTool === 'sculpt') {
-          this.handleDesignerClick(pointerInfo);
+      } else {
+        // In Play Mode, hide the designer brush cursor
+        if (this.brushVisualizer?.isVisible) {
+          this.brushVisualizer.setVisible(false);
         }
       }
     });
@@ -719,26 +753,40 @@ class FairwayStudioApp {
           this.shadowGenerator.addShadowCaster(createdMesh, true);
         }
       } else {
-        this.terrain.stampFeature(
-          gx,
-          gz,
-          p.width,
-          p.length,
-          0,
-          p.surfaceType,
-          p.depthProfile ?? 0,
-          p.lipHeight ?? 0
-        );
-
         if (p.surfaceType === SurfaceType.WATER) {
-          const gy = this.terrain.getElevation(gx, gz);
-          this.scenery.createWaterPlane(gx, gy + 1.2, gz, p.width, p.length);
+          const rimElevation = this.terrain.getElevation(gx, gz);
+          this.terrain.stampFeature(
+            gx,
+            gz,
+            p.width,
+            p.length,
+            0,
+            p.surfaceType,
+            p.depthProfile ?? -2.2,
+            p.lipHeight ?? 0
+          );
+          const waterMesh = this.scenery.createWaterPlane(gx, rimElevation, gz, p.width, p.length);
+          if (waterMesh && this.shadowGenerator) {
+            this.shadowGenerator.addShadowCaster(waterMesh, true);
+          }
+        } else {
+          this.terrain.stampFeature(
+            gx,
+            gz,
+            p.width,
+            p.length,
+            0,
+            p.surfaceType,
+            p.depthProfile ?? 0,
+            p.lipHeight ?? 0
+          );
         }
 
         this.havok.updateTerrainCollision(this.terrain.terrainMesh!);
         if (p.surfaceType === SurfaceType.GREEN) {
           this.greenVisualizer.rebuildSlopeGrid();
         }
+        this.registerSceneryShadows();
       }
 
     } else if (this.activeDesignerTool === 'set_tee') {

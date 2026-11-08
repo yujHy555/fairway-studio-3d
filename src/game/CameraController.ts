@@ -32,7 +32,12 @@ export class CameraController {
     );
     this.camera.attachControl(canvas, true);
 
-    canvas.addEventListener('pointerdown', () => { this.isUserDragging = true; });
+    canvas.addEventListener('pointerdown', (e) => {
+      // In designer mode, only right-click (button 2) triggers camera rotation drag
+      if (e.button === 2 || this.mode !== 'designer') {
+        this.isUserDragging = true;
+      }
+    });
     window.addEventListener('pointerup', () => { this.isUserDragging = false; });
 
     // Generous, unrestricted view angles while strictly keeping camera above ground
@@ -48,18 +53,29 @@ export class CameraController {
   public setMode(mode: CameraMode) {
     this.mode = mode;
 
+    const pointersInput = (this.camera.inputs?.attached?.pointers as any);
+
     if (mode === 'designer') {
       this.camera.radius = 90;
       this.camera.beta = Math.PI / 3.4;
-    } else if (mode === 'aim') {
-      this.camera.radius = 2.4; // Authentic PGA Tour address view framed for regulation golf ball
-      this.camera.beta = Math.PI / 2.45; // ~73.5 degrees: frames ball and target line down fairway
-    } else if (mode === 'green') {
-      this.camera.radius = 3.6; // Putting view
-      this.camera.beta = Math.PI / 3.0;
-    } else if (mode === 'flight') {
-      this.camera.radius = 18.0; // Wide expansive TV broadcast follow distance
-      this.camera.beta = Math.PI / 2.9;
+      // In Designer Mode: Right-click (button 2) orbits camera; Left-click (button 0) sculpts/stamps cleanly!
+      if (pointersInput) {
+        pointersInput.buttons = [2];
+      }
+    } else {
+      if (pointersInput) {
+        pointersInput.buttons = [0, 1, 2];
+      }
+      if (mode === 'aim') {
+        this.camera.radius = 2.4; // Authentic PGA Tour address view framed for regulation golf ball
+        this.camera.beta = Math.PI / 2.45; // ~73.5 degrees: frames ball and target line down fairway
+      } else if (mode === 'green') {
+        this.camera.radius = 3.6; // Putting view
+        this.camera.beta = Math.PI / 3.0;
+      } else if (mode === 'flight') {
+        this.camera.radius = 18.0; // Wide expansive TV broadcast follow distance
+        this.camera.beta = Math.PI / 2.9;
+      }
     }
   }
 

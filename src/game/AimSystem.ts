@@ -6,9 +6,8 @@ import {
   Color3,
   Vector3
 } from '@babylonjs/core';
-import { ClubSpec, Vector3D } from '../core/Types';
+import { ClubSpec } from '../core/Types';
 import { TerrainGrid } from '../terrain/TerrainGrid';
-import { Aerodynamics } from '../physics/Aerodynamics';
 
 export class AimSystem {
   private scene: Scene;
@@ -25,16 +24,14 @@ export class AimSystem {
   private flagMesh: Mesh;
   private outerRingMesh: Mesh;
   private innerRingMesh: Mesh;
-  private trajectoryTube: Mesh | null = null;
   private dispersionMesh: Mesh;
 
   // Materials
   private poleMat: StandardMaterial;
   private ringMat: StandardMaterial;
   private dispersionMat: StandardMaterial;
-  private trajectoryMat: StandardMaterial;
 
-  private isVisible: boolean = true;
+  public isVisible: boolean = true;
   private pulseTime: number = 0;
 
   constructor(scene: Scene, terrain: TerrainGrid) {
@@ -110,13 +107,6 @@ export class AimSystem {
     this.dispersionMat.disableLighting = true;
     this.dispersionMesh.material = this.dispersionMat;
 
-    // 5. Predicted Trajectory Ribbon Material
-    this.trajectoryMat = new StandardMaterial('aimTrajectoryMat', this.scene);
-    this.trajectoryMat.emissiveColor = new Color3(0.35, 0.90, 1.0); // Translucent luminous cyan aim arc
-    this.trajectoryMat.diffuseColor = new Color3(0.2, 0.8, 1.0);
-    this.trajectoryMat.alpha = 0.65;
-    this.trajectoryMat.disableLighting = true;
-
     // Pulse animation
     this.scene.onBeforeRenderObservable.add(() => {
       if (!this.isVisible) return;
@@ -130,9 +120,6 @@ export class AimSystem {
   public setVisible(visible: boolean) {
     this.isVisible = visible;
     this.targetGroup.setEnabled(visible);
-    if (this.trajectoryTube) {
-      this.trajectoryTube.setEnabled(visible);
-    }
   }
 
   /**
@@ -150,7 +137,7 @@ export class AimSystem {
   }
 
   /**
-   * Sets target location directly to a 3D ground point (e.g. from mouse click)
+   * Sets target location directly to a 3D ground point
    */
   public setTargetPosition(ballPos: Vector3, clickX: number, clickZ: number) {
     const dx = clickX - ballPos.x;
@@ -160,13 +147,13 @@ export class AimSystem {
   }
 
   /**
-   * Recalculates target position and aerodynamic trajectory aim arc
+   * Recalculates target position and beacon placement
    */
   public update(
     ballPos: Vector3,
     club: ClubSpec,
-    windSpeedMps: number,
-    windHeadingDeg: number
+    _windSpeedMps?: number,
+    _windHeadingDeg?: number
   ) {
     if (!this.isVisible) return;
 
@@ -184,91 +171,12 @@ export class AimSystem {
                              club.category === 'iron' ? 4.2 :
                              club.category === 'wedge' ? 2.5 : 1.2;
     this.dispersionMesh.scaling.set(dispersionRadius / 4.5, dispersionRadius / 4.5, 1);
-
-    // Compute Aerodynamic Flight Trajectory Arc
-    this.rebuildTrajectoryArc(ballPos, club, windSpeedMps, windHeadingDeg);
-  }
-
-  private rebuildTrajectoryArc(
-    ballPos: Vector3,
-    club: ClubSpec,
-    windSpeedMps: number,
-    windHeadingDeg: number
-  ) {
-    if (this.trajectoryTube) {
-      this.trajectoryTube.dispose();
-      this.trajectoryTube = null;
-    }
-
-    if (club.category === 'putter') return; // Putts don't have aerial arcs
-
-    // Simulate flight curve points using Aerodynamics RK4
-    const startPos: Vector3D = { x: ballPos.x, y: ballPos.y + 0.05, z: ballPos.z };
-    const shot = {
-      club,
-      powerPercent: 0.95,
-      accuracyOffset: 0,
-      launchAngleDeg: club.loftDegrees,
-      launchSpeedMps: club.baseBallSpeedMps * 0.95,
-      backspinRPM: club.baseBackspinRPM * 0.95,
-      sidespinRPM: 0,
-      azimuthDeg: this.aimHeadingDeg,
-      windSpeedMps,
-      windHeadingDeg
-    };
-
-    const initial = Aerodynamics.calculateInitialVectors(shot);
-    let curVel = initial.velocity;
-    let curSpin = initial.spinVec;
-    let curPos = { ...startPos };
-
-    const windRad = (windHeadingDeg * Math.PI) / 180.0;
-    const windVec: Vector3D = {
-      x: windSpeedMps * Math.sin(windRad),
-      y: 0,
-      z: windSpeedMps * Math.cos(windRad)
-    };
-
-    const points: Vector3[] = [new Vector3(startPos.x, startPos.y, startPos.z)];
-    const dt = 0.05;
-
-    for (let t = 0; t < 8.0; t += dt) {
-      const step = Aerodynamics.stepRK4(curPos, curVel, curSpin, windVec, dt);
-      curPos = step.nextPos;
-      curVel = step.nextVel;
-      curSpin = step.nextSpin;
-
-      const groundY = this.terrain.getElevation(curPos.x, curPos.z);
-      if (curPos.y <= groundY + 0.1) {
-        points.push(new Vector3(curPos.x, groundY + 0.1, curPos.z));
-        break;
-      }
-
-      points.push(new Vector3(curPos.x, curPos.y, curPos.z));
-    }
-
-    if (points.length >= 3) {
-      this.trajectoryTube = MeshBuilder.CreateTube('aimTrajectoryArc', {
-        path: points,
-        radius: 0.045, // 9cm smooth luminous preview arc
-        tessellation: 6,
-        updatable: false
-      }, this.scene);
-      this.trajectoryTube.material = this.trajectoryMat;
-      this.trajectoryTube.isPickable = false;
-      this.trajectoryTube.setEnabled(this.isVisible);
-    }
   }
 
   public dispose() {
-    if (this.trajectoryTube) {
-      this.trajectoryTube.dispose();
-      this.trajectoryTube = null;
-    }
     this.targetGroup.dispose();
     this.poleMat.dispose();
     this.ringMat.dispose();
     this.dispersionMat.dispose();
-    this.trajectoryMat.dispose();
   }
 }

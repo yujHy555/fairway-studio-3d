@@ -240,14 +240,20 @@ export class TerrainGrid {
           const idx = z * this.cols + x;
 
           if (surfaceType === SurfaceType.BUNKER) {
-            if (normDist <= 1.0) {
-              const bowlFactor = 1.0 - Math.pow(normDist, 2);
+            if (normDist <= 0.85) {
+              const bowlFactor = 1.0 - Math.pow(normDist / 0.85, 2);
               const targetH = baseElevation + depthProfile * bowlFactor;
-              this.heights[idx] = this.heights[idx] * 0.3 + targetH * 0.7;
+              this.heights[idx] = targetH;
+              this.surfaceTypes[idx] = SurfaceType.BUNKER;
+            } else if (normDist <= 1.0) {
+              // Steep inner bank slope
+              const t = (normDist - 0.85) / 0.15;
+              this.heights[idx] = baseElevation + depthProfile * (1 - t) * 0.3 + lipHeight * t * 0.5;
               this.surfaceTypes[idx] = SurfaceType.BUNKER;
             } else {
-              const lipFactor = Math.sin((normDist - 1.0) * Math.PI / 0.25);
-              this.heights[idx] += lipHeight * lipFactor * 0.5;
+              // Raised grassy revetted lip ridge
+              const lipFactor = Math.sin((normDist - 1.0) * Math.PI / 0.28);
+              this.heights[idx] += lipHeight * lipFactor;
             }
           } else if (surfaceType === SurfaceType.GREEN) {
             if (normDist <= 1.0) {
@@ -451,20 +457,29 @@ export class TerrainGrid {
       ctx.fill();
 
     } else if (feat.surfaceType === SurfaceType.BUNKER) {
-      // 1. Feathered sand margin / bunker lip
-      const lipW = halfW + 0.7 * sX;
-      const lipL = halfL + 0.7 * sZ;
+      // 1. Raised grassy berm lip shadow / revetment outline (1.2m wider)
+      const bermW = halfW + 1.2 * sX;
+      const bermL = halfL + 1.2 * sZ;
       ctx.beginPath();
-      ctx.ellipse(0, 0, lipW, lipL, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#beac7d'; // Warm sand lip
+      ctx.ellipse(0, 0, bermW, bermL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#224718'; // Deep lush turf shadow framing the bunker
       ctx.fill();
 
-      // 2. Main bunker sand basin with radial depth gradient
+      // 2. Steep sod-wall inner lip face (0.6m wider)
+      const lipW = halfW + 0.6 * sX;
+      const lipL = halfL + 0.6 * sZ;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, lipW, lipL, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#8f7b52'; // Shaded sandy sod face
+      ctx.fill();
+
+      // 3. Main bunker sand floor with rich, warm PGA Tour golden sand
       ctx.beginPath();
       ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
-      const sandGrad = ctx.createRadialGradient(0, 0, halfW * 0.1, 0, 0, halfW);
-      sandGrad.addColorStop(0, '#ebd7a0'); // Golden sunlit sand
-      sandGrad.addColorStop(1, '#d8be86'); // Deeper shaded bowl
+      const sandGrad = ctx.createRadialGradient(0, 0, halfW * 0.15, 0, 0, halfW);
+      sandGrad.addColorStop(0, '#f2e0ad'); // Sunlit golden championship sand
+      sandGrad.addColorStop(0.75, '#e4cd93'); // Gentle sand rake texture
+      sandGrad.addColorStop(1, '#c2aa72'); // Shaded base rim
       ctx.fillStyle = sandGrad;
       ctx.fill();
 
@@ -482,16 +497,21 @@ export class TerrainGrid {
       ctx.fill();
 
     } else if (feat.surfaceType === SurfaceType.WATER) {
-      // Shoreline
+      // 1. Gentle wet grass shoreline border
       ctx.beginPath();
-      ctx.ellipse(0, 0, halfW + 1.0 * sX, halfL + 1.0 * sZ, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#2c7aa3';
+      ctx.ellipse(0, 0, halfW + 1.2 * sX, halfL + 1.2 * sZ, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#2d5a35'; // Wet grass bank
       ctx.fill();
 
-      // Deep water
+      ctx.beginPath();
+      ctx.ellipse(0, 0, halfW + 0.4 * sX, halfL + 0.4 * sZ, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#1e382b'; // Dark shoreline silt
+      ctx.fill();
+
+      // 2. Deep lake basin silt (under translucent water plane)
       ctx.beginPath();
       ctx.ellipse(0, 0, halfW, halfL, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#174f72';
+      ctx.fillStyle = '#0f2f3d'; // Deep aquatic silt
       ctx.fill();
     }
 

@@ -124,8 +124,8 @@ export const GOLF_CLUBS: ClubSpec[] = [
     shortName: 'PT',
     category: 'putter',
     loftDegrees: 3.0,
-    typicalCarryMeters: 20, // Max standard putt rollout
-    baseBallSpeedMps: 6.5,
+    typicalCarryMeters: 36, // Allows full lag putts across championship greens
+    baseBallSpeedMps: 8.5,  // Calibrated for authentic 0.8m - 38m putting range
     baseBackspinRPM: 0,
     spinDecayFactor: 0.1,
     maxSidespinRPM: 0,
