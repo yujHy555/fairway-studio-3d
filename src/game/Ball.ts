@@ -3,6 +3,8 @@ import {
   Mesh,
   MeshBuilder,
   StandardMaterial,
+  DynamicTexture,
+  Material,
   Color3,
   Vector3
 } from '@babylonjs/core';
@@ -50,6 +52,7 @@ export class Ball {
   private tracerPoints: Vector3[] = [];
   private tracerMesh: Mesh | null = null;
   private tracerMaterial: StandardMaterial;
+  private contactShadowMesh: Mesh;
 
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
@@ -79,6 +82,32 @@ export class Ball {
     this.mesh.material = mat;
     this.mesh.receiveShadows = true;
 
+    // Subtle radial turf-contact shadow disc directly under the ball so it sits crisply on the surface
+    this.contactShadowMesh = MeshBuilder.CreateGround('cup_ballContactShadow', {
+      width: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 2.5,
+      height: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 2.5
+    }, this.scene);
+    this.contactShadowMesh.isPickable = false;
+    const csTex = new DynamicTexture('ballContactShadowTex', 64, this.scene, false);
+    const csCtx = csTex.getContext() as CanvasRenderingContext2D;
+    const grad = csCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(8, 22, 6, 0.62)');
+    grad.addColorStop(0.55, 'rgba(8, 22, 6, 0.28)');
+    grad.addColorStop(1, 'rgba(8, 22, 6, 0.0)');
+    csCtx.fillStyle = grad;
+    csCtx.fillRect(0, 0, 64, 64);
+    csTex.hasAlpha = true;
+    csTex.update(false);
+
+    const csMat = new StandardMaterial('ballContactShadowMat', this.scene);
+    csMat.diffuseTexture = csTex;
+    csMat.opacityTexture = csTex;
+    csMat.disableLighting = true;
+    csMat.emissiveColor = new Color3(0.03, 0.08, 0.02);
+    csMat.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    csMat.zOffset = -1;
+    this.contactShadowMesh.material = csMat;
+
     // Toptracer luminous ribbon material
     this.tracerMaterial = new StandardMaterial('toptracerMat', this.scene);
     this.tracerMaterial.diffuseColor = new Color3(1.0, 0.45, 0.05);
@@ -91,6 +120,20 @@ export class Ball {
     this.scene.onBeforeRenderObservable.add(() => {
       this.update(this.scene.getEngine().getDeltaTime() / 1000);
     });
+  }
+
+  private syncContactShadow(groundY: number) {
+    if (this.state === BallState.IN_HOLE || this.state === BallState.IN_WATER) {
+      this.contactShadowMesh.setEnabled(false);
+      return;
+    }
+    const heightAboveGround = Math.max(0, this.mesh.position.y - (groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS));
+    if (heightAboveGround > 0.35) {
+      this.contactShadowMesh.setEnabled(false);
+      return;
+    }
+    this.contactShadowMesh.setEnabled(true);
+    this.contactShadowMesh.position.set(this.mesh.position.x, groundY + 0.001, this.mesh.position.z);
   }
 
   public get position(): Vector3 {
@@ -118,6 +161,7 @@ export class Ball {
     this.curSpin = { x: 0, y: 0, z: 0 };
     this.currentLie = this.terrain.getSurfaceAt(x, z);
     this.state = BallState.AIMING;
+    this.syncContactShadow(groundY);
     this.clearTracer();
   }
 
@@ -189,6 +233,7 @@ export class Ball {
     if (this.state === BallState.AIMING || this.state === BallState.AT_REST) {
       const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
       this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+      this.syncContactShadow(groundY);
       return;
     }
 
@@ -226,8 +271,10 @@ export class Ball {
         this.totalDistance = Math.sqrt(dx * dx + dz * dz);
 
         const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
+        this.syncContactShadow(groundY);
         if (this.mesh.position.y <= groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS) {
           this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+          this.syncContactShadow(groundY);
 
           if (!this.hasLanded) {
             this.hasLanded = true;
@@ -264,6 +311,7 @@ export class Ball {
       // Compute exact triangle elevation AFTER moving x and z so ball never penetrates or floats on slopes!
       const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
       this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+      this.syncContactShadow(groundY);
 
       // Authentic physical rolling rotation of the dimpled ball mesh
       this.mesh.rotation.x += (this.curVelocity.z * dt) / GOLF_CONSTANTS.BALL_RENDER_RADIUS;
