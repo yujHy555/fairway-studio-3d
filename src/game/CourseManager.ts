@@ -44,6 +44,23 @@ export class CourseManager {
     };
 
     this.initDefaultChampionshipHole();
+
+    // Check if custom saved default hole exists in localStorage
+    try {
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('fairway_studio_custom_default_hole') : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.holes && parsed.heightMap && parsed.surfaceMap) {
+          this.courseData = parsed;
+          this.terrain.heights.set(parsed.heightMap);
+          this.terrain.surfaceTypes.set(parsed.surfaceMap);
+          this.terrain.rebuildMesh();
+          this.setupHoleVisuals();
+        }
+      }
+    } catch (e) {
+      console.warn('Could not restore saved custom default hole:', e);
+    }
   }
 
   public get currentHole(): GolfHole {
@@ -389,6 +406,37 @@ export class CourseManager {
     if (this.activePinMesh) list.push(this.activePinMesh);
     if (this.activeTeeMesh) list.push(this.activeTeeMesh);
     return list;
+  }
+
+  public addSceneryMesh(mesh: Mesh) {
+    if (!this.sceneryMeshes.includes(mesh)) {
+      this.sceneryMeshes.push(mesh);
+    }
+  }
+
+  public removeSceneryMesh(mesh: Mesh) {
+    const idx = this.sceneryMeshes.indexOf(mesh);
+    if (idx !== -1) {
+      this.sceneryMeshes.splice(idx, 1);
+    }
+  }
+
+  public saveCurrentAsDefault(): boolean {
+    try {
+      const json = this.exportCourseJSON();
+      localStorage.setItem('fairway_studio_custom_default_hole', json);
+      return true;
+    } catch (e) {
+      console.error('Failed to save default hole to localStorage:', e);
+      return false;
+    }
+  }
+
+  public resetToFactoryDefault(): void {
+    try {
+      localStorage.removeItem('fairway_studio_custom_default_hole');
+    } catch (e) {}
+    window.location.reload();
   }
 
   public addHole(par: 3 | 4 | 5 = 4, name?: string): GolfHole | null {

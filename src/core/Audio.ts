@@ -512,28 +512,31 @@ class GolfAudioEngine {
     this.initContext();
     if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
     try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       const filter = this.ctx.createBiquadFilter();
 
       filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(2400, now);
-      filter.Q.setValueAtTime(4.2, now);
+      filter.frequency.setValueAtTime(2600, now);
+      filter.Q.setValueAtTime(3.6, now);
 
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(1750, now);
-      osc.frequency.exponentialRampToValueAtTime(550, now + 0.024);
+      osc.frequency.setValueAtTime(1950, now);
+      osc.frequency.exponentialRampToValueAtTime(600, now + 0.028);
 
-      gain.gain.setValueAtTime(0.048, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.024);
+      gain.gain.setValueAtTime(0.22, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.028);
 
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(this.masterGain);
 
       osc.start(now);
-      osc.stop(now + 0.026);
+      osc.stop(now + 0.030);
     } catch {
       // AudioContext not unlocked yet
     }

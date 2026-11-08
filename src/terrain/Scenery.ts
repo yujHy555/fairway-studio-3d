@@ -24,11 +24,25 @@ export interface TreeCollider {
   canopyBottomY: number;
   canopyTopY: number;
   isHero: boolean;
+  mesh?: Mesh;
 }
 
 export class SceneryFactory {
   private scene: Scene;
   public treeColliders: TreeCollider[] = [];
+
+  public syncColliders() {
+    for (const c of this.treeColliders) {
+      if (c.mesh && !c.mesh.isDisposed()) {
+        const dy = c.mesh.position.y - c.y;
+        c.x = c.mesh.position.x;
+        c.y = c.mesh.position.y;
+        c.z = c.mesh.position.z;
+        c.canopyBottomY += dy;
+        c.canopyTopY += dy;
+      }
+    }
+  }
 
   // Shared realistic materials
   private matGlbPineTree: StandardMaterial;
@@ -741,7 +755,7 @@ export class SceneryFactory {
     treeMesh.material = this.matGlbPineTree;
     // Crossed foliage planes should cast shadows onto the terrain without harsh 90-deg self-shadow artifacts
     treeMesh.receiveShadows = false;
-    treeMesh.isPickable = false;
+    treeMesh.isPickable = true;
 
     this.activeTreeMeshes.push(treeMesh);
 
@@ -755,7 +769,8 @@ export class SceneryFactory {
       canopyRadius: 2.3 * scale,
       canopyBottomY: y + 1.8 * scale,
       canopyTopY: y + 12.0 * scale,
-      isHero: false
+      isHero: false,
+      mesh: treeMesh
     });
 
     return treeMesh;
@@ -776,19 +791,19 @@ export class SceneryFactory {
 
     const branches = new Mesh(`hero_tree_branches_${idx}`, this.scene);
     branches.material = this.matHeroBranches;
-    branches.isPickable = false;
+    branches.isPickable = true;
     branches.parent = root;
 
     const leaves = new Mesh(`hero_tree_leaves_${idx}`, this.scene);
     leaves.material = this.matHeroLeaves;
     leaves.receiveShadows = false;
-    leaves.isPickable = false;
+    leaves.isPickable = true;
     leaves.parent = root;
 
     const trunk = new Mesh(`hero_tree_trunk_${idx}`, this.scene);
     trunk.material = this.matHeroTrunk;
     trunk.receiveShadows = true;
-    trunk.isPickable = false;
+    trunk.isPickable = true;
     trunk.parent = root;
 
     if (this.heroBranchesVertexData) this.heroBranchesVertexData.applyToMesh(branches, false);
@@ -807,7 +822,8 @@ export class SceneryFactory {
       canopyRadius: 4.8 * scale,
       canopyBottomY: y + 2.8 * scale,
       canopyTopY: y + 14.5 * scale,
-      isHero: true
+      isHero: true,
+      mesh: root
     });
 
     return root;
@@ -851,7 +867,8 @@ export class SceneryFactory {
       canopyRadius: 0.75 * s,
       canopyBottomY: y,
       canopyTopY: y + 1.15 * s,
-      isHero: true
+      isHero: true,
+      mesh: root
     });
 
     return root;
@@ -872,7 +889,7 @@ export class SceneryFactory {
     const rockMesh = new Mesh(`rock_glb_mesh_${idx}`, this.scene);
     rockMesh.material = this.matGlbRock;
     rockMesh.receiveShadows = true;
-    rockMesh.isPickable = false;
+    rockMesh.isPickable = true;
     rockMesh.parent = root;
     rockMesh.rotation.x = -Math.PI / 2;
 
@@ -889,7 +906,8 @@ export class SceneryFactory {
       canopyRadius: 0,
       canopyBottomY: 0,
       canopyTopY: 0,
-      isHero: false
+      isHero: false,
+      mesh: root
     });
 
     return root;
@@ -915,7 +933,7 @@ export class SceneryFactory {
     const cliffMesh = new Mesh(`cliff_glb_mesh_${idx}`, this.scene);
     cliffMesh.material = this.matCliff;
     cliffMesh.receiveShadows = true;
-    cliffMesh.isPickable = false;
+    cliffMesh.isPickable = true;
     cliffMesh.parent = root;
 
     if (this.cliffVertexData) {
@@ -1143,7 +1161,7 @@ export class SceneryFactory {
     water.rotation.y = -rotationRad;
     water.material = this.matWater;
     water.receiveShadows = true;
-    water.isPickable = false;
+    water.isPickable = true;
     return water;
   }
 

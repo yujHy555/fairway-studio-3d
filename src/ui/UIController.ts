@@ -7,7 +7,7 @@ import { soundFx } from '../core/Audio';
 
 export interface UIEventCallbacks {
   onModeToggle: (mode: 'designer' | 'play') => void;
-  onToolSelect: (tool: 'sculpt' | 'stamp' | 'set_tee' | 'set_pin') => void;
+  onToolSelect: (tool: 'select' | 'sculpt' | 'stamp' | 'set_tee' | 'set_pin' | 'erase') => void;
   onSculptModeSelect: (mode: 'raise' | 'lower' | 'flatten' | 'smooth') => void;
   onPresetSelect: (preset: PresetFeature) => void;
   onBrushRadiusChange: (radius: number) => void;
@@ -29,6 +29,11 @@ export interface UIEventCallbacks {
   onShotShapeChange?: (shape: 'straight' | 'draw' | 'fade') => void;
   onFocusBall?: () => void;
   onResetShot: () => void;
+  onGizmoModeChange?: (mode: 'none' | 'position' | 'rotation' | 'scale') => void;
+  onDeleteSelectedObject?: () => void;
+  onPushToPlay?: () => void;
+  onSaveDefaultHole?: () => void;
+  onResetFactoryLayout?: () => void;
 }
 
 export class UIController {
@@ -64,6 +69,7 @@ export class UIController {
 
     this.render();
     this.setupListeners();
+    this.updateHotkeysGuide('play');
   }
 
   private render() {
@@ -130,12 +136,23 @@ export class UIController {
         </div>
 
         <div class="panel-section">
-          <h4>Tools</h4>
+          <h4>Editor Modes</h4>
           <div class="tool-tabs">
-            <button class="btn tool-tab active" data-tool="stamp">Presets</button>
-            <button class="btn tool-tab" data-tool="sculpt">Sculpt</button>
-            <button class="btn tool-tab" data-tool="set_tee">Set Tee</button>
-            <button class="btn tool-tab" data-tool="set_pin">Set Pin</button>
+            <button class="btn tool-tab active" data-tool="select">Select 🎯 [V]</button>
+            <button class="btn tool-tab" data-tool="sculpt">Sculpt 🏔️ [B]</button>
+            <button class="btn tool-tab" data-tool="stamp">Add Object 🌲 [A]</button>
+            <button class="btn tool-tab" data-tool="erase">Erase 🧹 [X]</button>
+            <button class="btn tool-tab" data-tool="set_tee">Set Tee ⛳</button>
+            <button class="btn tool-tab" data-tool="set_pin">Set Pin 🚩</button>
+          </div>
+        </div>
+
+        <!-- Select Mode Controls -->
+        <div id="select-controls" class="panel-section">
+          <h4>Selection Mode Active 🎯</h4>
+          <div style="font-size: 11px; color: #a7f3d0; line-height: 1.45; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 8px 10px;">
+            <strong>LMB Click</strong> any tree, rock, cliff, or prop to select it.<br/>
+            Use <strong>Move [G]</strong>, <strong>Rotate [R]</strong>, and <strong>Scale [S]</strong> gizmos to adjust.
           </div>
         </div>
 
@@ -160,7 +177,7 @@ export class UIController {
         </div>
 
         <!-- Preset Feature Library -->
-        <div id="preset-controls" class="panel-section">
+        <div id="preset-controls" class="panel-section hidden">
           <h4>Preset Library (Auto-Blending)</h4>
           <div class="preset-category-filter">
             <button class="btn-chip active" data-cat="all">All</button>
@@ -283,19 +300,88 @@ export class UIController {
             <button id="btn-swing-action" class="btn btn-swing">
               <span class="swing-main-btn-text">SWING [SPACE]</span>
             </button>
-            <div class="hud-aim-controls">
-              <button id="btn-aim-left" class="btn btn-sm">◀ Aim Left [← / A]</button>
-              <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
-              <button id="btn-focus-ball" class="btn btn-sm">⛳ Ball [B]</button>
-              <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
-              <button id="btn-fullscreen" class="btn btn-sm">⛶ Fullscreen [F]</button>
-              <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
-            </div>
+          </div>
+          <div class="hud-aim-controls">
+            <button id="btn-aim-left" class="btn btn-sm">◀ Aim Left [← / A]</button>
+            <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
+            <button id="btn-focus-ball" class="btn btn-sm">⛳ Ball [B]</button>
+            <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
+            <button id="btn-fullscreen" class="btn btn-sm">⛶ Fullscreen [F]</button>
           </div>
         </div>
 
         <!-- In-App Notification Toast Container -->
         <div id="hud-toast-container" class="hud-toast-container"></div>
+      </div>
+
+      <!-- DEVELOPER ZONE RIGHT COLLAPSIBLE DRAWER -->
+      <aside id="developer-zone-panel" class="hidden">
+        <div class="dev-panel-header">
+          <div class="dev-panel-title">
+            <span class="dev-icon">🛠️</span>
+            <h3>DEVELOPER ZONE</h3>
+          </div>
+          <button id="btn-toggle-dev-zone" class="btn-dev-collapse" title="Collapse / Expand Developer Zone">✕</button>
+        </div>
+        <div class="dev-panel-body" id="dev-zone-body">
+          <!-- Transform Gizmo Mode -->
+          <div class="dev-section">
+            <div class="dev-section-title">TRANSFORM GIZMO</div>
+            <div class="dev-gizmo-buttons">
+              <button class="btn btn-dev-gizmo active" data-gizmo="none">None [Q]</button>
+              <button class="btn btn-dev-gizmo" data-gizmo="position">Move [G]</button>
+              <button class="btn btn-dev-gizmo" data-gizmo="rotation">Rotate [R]</button>
+              <button class="btn btn-dev-gizmo" data-gizmo="scale">Scale [S]</button>
+            </div>
+          </div>
+
+          <!-- Selected Object Inspector -->
+          <div class="dev-section">
+            <div class="dev-section-title">SELECTED OBJECT</div>
+            <div class="dev-info-box" id="dev-selected-info">
+              <div class="dev-info-empty">Click any tree, rock, cliff, or prop to select</div>
+            </div>
+            <button id="btn-dev-delete-obj" class="btn btn-danger btn-block mt-2" style="display: none;">
+              🗑️ Delete Object [Del]
+            </button>
+          </div>
+
+          <!-- Deploy & Persist Zone Actions -->
+          <div class="dev-section">
+            <div class="dev-section-title">DEPLOY & PERSIST</div>
+            <button id="btn-dev-push-to-play" class="btn btn-dev-action btn-dev-push btn-block">
+              🚀 Push Changes to Play Mode
+            </button>
+            <button id="btn-dev-save-default" class="btn btn-dev-action btn-dev-save btn-block mt-2">
+              💾 Save Default Hole
+            </button>
+            <button id="btn-dev-reset-default" class="btn btn-dev-action btn-dev-reset btn-block mt-2">
+              🔄 Reset to Factory Default
+            </button>
+          </div>
+
+          <!-- Scenery & Hole Architecture Stats -->
+          <div class="dev-section">
+            <div class="dev-section-title">SCENERY METRICS</div>
+            <div class="dev-stats-grid">
+              <div class="dev-stat-card"><span class="dev-stat-val" id="stat-trees-count">0</span><span class="dev-stat-lbl">Trees</span></div>
+              <div class="dev-stat-card"><span class="dev-stat-val" id="stat-rocks-count">0</span><span class="dev-stat-lbl">Rocks</span></div>
+              <div class="dev-stat-card"><span class="dev-stat-val" id="stat-cliffs-count">0</span><span class="dev-stat-lbl">Cliffs</span></div>
+              <div class="dev-stat-card"><span class="dev-stat-val" id="stat-bunkers-count">0</span><span class="dev-stat-lbl">Bunkers</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- BOTTOM-LEFT HOTKEYS & TIPS GUIDE -->
+      <div id="hud-hotkeys-guide">
+        <div class="guide-header">
+          <span class="guide-title" id="guide-title">🎮 PLAY CONTROLS & TIPS</span>
+          <button id="btn-toggle-guide" class="guide-toggle-btn" title="Toggle Guide">_</button>
+        </div>
+        <div class="guide-body" id="guide-body">
+          <!-- Dynamically populated -->
+        </div>
       </div>
     `;
 
@@ -636,19 +722,28 @@ export class UIController {
   }
 
   public toggleMode(): 'designer' | 'play' {
+    const devPanel = document.getElementById('developer-zone-panel');
+    const driverCard = document.getElementById('club-card-driver');
+    const putterCard = document.getElementById('club-card-putter');
+
     if (this.currentMode === 'play') {
       this.currentMode = 'designer';
       this.designerPanel.classList.remove('hidden');
       this.playHUD.classList.add('hidden');
+      if (devPanel) devPanel.classList.remove('hidden');
+      if (driverCard) driverCard.classList.add('hidden');
+      if (putterCard) putterCard.classList.add('hidden');
       document.getElementById('mode-text')!.innerText = 'Switch to Play';
       document.getElementById('mode-icon')!.innerText = '🏌️';
     } else {
       this.currentMode = 'play';
       this.designerPanel.classList.add('hidden');
       this.playHUD.classList.remove('hidden');
+      if (devPanel) devPanel.classList.add('hidden');
       document.getElementById('mode-text')!.innerText = 'Switch to Designer';
       document.getElementById('mode-icon')!.innerText = '🎨';
     }
+    this.updateHotkeysGuide(this.currentMode);
     this.callbacks.onModeToggle(this.currentMode);
     return this.currentMode;
   }
@@ -733,25 +828,59 @@ export class UIController {
     // Designer tool tabs
     document.querySelectorAll('.tool-tab').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.tool-tab').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const tool = btn.getAttribute('data-tool') as 'sculpt' | 'stamp' | 'set_tee' | 'set_pin';
-        this.callbacks.onToolSelect(tool);
-
-        const sculptControls = document.getElementById('sculpt-controls')!;
-        const presetControls = document.getElementById('preset-controls')!;
-        if (tool === 'sculpt') {
-          sculptControls.classList.remove('hidden');
-          presetControls.classList.add('hidden');
-        } else if (tool === 'stamp') {
-          sculptControls.classList.add('hidden');
-          presetControls.classList.remove('hidden');
-        } else {
-          sculptControls.classList.add('hidden');
-          presetControls.classList.add('hidden');
-        }
+        const tool = btn.getAttribute('data-tool') as 'select' | 'sculpt' | 'stamp' | 'set_tee' | 'set_pin' | 'erase';
+        this.setDesignerTool(tool);
       });
     });
+
+    // Developer Zone collapsible toggle
+    const devPanel = document.getElementById('developer-zone-panel');
+    const devToggle = document.getElementById('btn-toggle-dev-zone');
+    if (devToggle && devPanel) {
+      devToggle.addEventListener('click', () => {
+        devPanel.classList.toggle('dev-collapsed');
+        devToggle.innerText = devPanel.classList.contains('dev-collapsed') ? '◀ 🛠️' : '✕';
+      });
+    }
+
+    // Developer Zone Gizmo Buttons
+    document.querySelectorAll('.btn-dev-gizmo').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-gizmo') as 'none' | 'position' | 'rotation' | 'scale';
+        this.setGizmoModeButton(mode);
+        this.callbacks.onGizmoModeChange?.(mode);
+      });
+    });
+
+    // Delete Selected Object button
+    document.getElementById('btn-dev-delete-obj')?.addEventListener('click', () => {
+      this.callbacks.onDeleteSelectedObject?.();
+    });
+
+    // Push to Play Mode button
+    document.getElementById('btn-dev-push-to-play')?.addEventListener('click', () => {
+      this.callbacks.onPushToPlay?.();
+    });
+
+    // Save Default Hole button
+    document.getElementById('btn-dev-save-default')?.addEventListener('click', () => {
+      this.callbacks.onSaveDefaultHole?.();
+    });
+
+    // Reset to Factory Default button
+    document.getElementById('btn-dev-reset-default')?.addEventListener('click', () => {
+      this.callbacks.onResetFactoryLayout?.();
+    });
+
+    // Hotkeys Guide toggle minimize
+    const guideBody = document.getElementById('guide-body');
+    const guideToggle = document.getElementById('btn-toggle-guide');
+    if (guideToggle && guideBody) {
+      guideToggle.addEventListener('click', () => {
+        guideBody.classList.toggle('hidden');
+        guideToggle.innerText = guideBody.classList.contains('hidden') ? '+' : '–';
+      });
+    }
 
     // Sculpt mode buttons
     document.querySelectorAll('.sculpt-mode-btn').forEach(btn => {
@@ -841,7 +970,7 @@ export class UIController {
       }
     });
 
-    document.getElementById('btn-reset-shot')!.addEventListener('click', () => {
+    document.getElementById('btn-reset-shot')?.addEventListener('click', () => {
       this.callbacks.onResetShot();
     });
 
@@ -866,6 +995,34 @@ export class UIController {
         }
         return;
       }
+
+      if (this.currentMode === 'designer') {
+        if (e.code === 'KeyV') {
+          this.setDesignerTool('select');
+        } else if (e.code === 'KeyB') {
+          this.setDesignerTool('sculpt');
+        } else if (e.code === 'KeyA') {
+          this.setDesignerTool('stamp');
+        } else if (e.code === 'KeyX') {
+          this.setDesignerTool('erase');
+        } else if (e.code === 'KeyG') {
+          this.setGizmoModeButton('position');
+          this.callbacks.onGizmoModeChange?.('position');
+        } else if (e.code === 'KeyR') {
+          this.setGizmoModeButton('rotation');
+          this.callbacks.onGizmoModeChange?.('rotation');
+        } else if (e.code === 'KeyS') {
+          this.setGizmoModeButton('scale');
+          this.callbacks.onGizmoModeChange?.('scale');
+        } else if (e.code === 'KeyQ') {
+          this.setGizmoModeButton('none');
+          this.callbacks.onGizmoModeChange?.('none');
+        } else if (e.code === 'Delete' || e.code === 'Backspace') {
+          this.callbacks.onDeleteSelectedObject?.();
+        }
+        return;
+      }
+
       if (this.currentMode !== 'play') return;
       if (e.code === 'Space') {
         e.preventDefault();
@@ -891,6 +1048,22 @@ export class UIController {
     });
   }
 
+  public setDesignerTool(tool: 'select' | 'sculpt' | 'stamp' | 'set_tee' | 'set_pin' | 'erase') {
+    document.querySelectorAll('.tool-tab').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-tool') === tool);
+    });
+
+    const selectControls = document.getElementById('select-controls');
+    const sculptControls = document.getElementById('sculpt-controls');
+    const presetControls = document.getElementById('preset-controls');
+
+    if (selectControls) selectControls.classList.toggle('hidden', tool !== 'select');
+    if (sculptControls) sculptControls.classList.toggle('hidden', tool !== 'sculpt');
+    if (presetControls) presetControls.classList.toggle('hidden', tool !== 'stamp');
+
+    this.callbacks.onToolSelect(tool);
+  }
+
   public currentShotShape: 'straight' | 'draw' | 'fade' = 'straight';
 
   public setShotShape(shape: 'straight' | 'draw' | 'fade') {
@@ -902,5 +1075,80 @@ export class UIController {
     btnStraight?.classList.toggle('active', shape === 'straight');
     btnFade?.classList.toggle('active', shape === 'fade');
     this.callbacks.onShotShapeChange?.(shape);
+  }
+
+  public updateDevSelectedObject(mesh: { name: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scaling: { x: number; y: number; z: number } } | null) {
+    const container = document.getElementById('dev-selected-info');
+    const deleteBtn = document.getElementById('btn-dev-delete-obj');
+    if (!container) return;
+
+    if (!mesh) {
+      container.innerHTML = `<div class="dev-info-empty">Click any tree, rock, cliff, or prop to select</div>`;
+      if (deleteBtn) deleteBtn.style.display = 'none';
+      return;
+    }
+
+    const pos = mesh.position;
+    const rot = mesh.rotation;
+    const scl = mesh.scaling;
+    const name = mesh.name || 'Prop';
+
+    container.innerHTML = `
+      <div class="dev-obj-name"><strong>${name}</strong></div>
+      <div class="dev-obj-details">
+        <div><strong>Pos:</strong> X:${pos.x.toFixed(1)} Y:${pos.y.toFixed(1)} Z:${pos.z.toFixed(1)}</div>
+        <div><strong>Rot Y:</strong> ${(rot.y * 180 / Math.PI).toFixed(0)}°</div>
+        <div><strong>Scale:</strong> ${scl.x.toFixed(2)}x</div>
+      </div>
+    `;
+    if (deleteBtn) deleteBtn.style.display = 'block';
+  }
+
+  public updateDevStats(trees: number, rocks: number, cliffs: number, bunkers: number) {
+    const elTrees = document.getElementById('stat-trees-count');
+    const elRocks = document.getElementById('stat-rocks-count');
+    const elCliffs = document.getElementById('stat-cliffs-count');
+    const elBunkers = document.getElementById('stat-bunkers-count');
+    if (elTrees) elTrees.innerText = `${trees}`;
+    if (elRocks) elRocks.innerText = `${rocks}`;
+    if (elCliffs) elCliffs.innerText = `${cliffs}`;
+    if (elBunkers) elBunkers.innerText = `${bunkers}`;
+  }
+
+  public setGizmoModeButton(mode: 'none' | 'position' | 'rotation' | 'scale') {
+    document.querySelectorAll('.btn-dev-gizmo').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-gizmo') === mode);
+    });
+  }
+
+  public updateHotkeysGuide(mode: 'play' | 'designer') {
+    const title = document.getElementById('guide-title');
+    const body = document.getElementById('guide-body');
+    if (!title || !body) return;
+
+    if (mode === 'play') {
+      title.innerText = '🎮 PLAY CONTROLS & TIPS';
+      body.innerHTML = `
+        <div class="guide-row"><span class="guide-key">SPACE</span><span class="guide-desc">3-Click Swing (Start → Power → Snap)</span></div>
+        <div class="guide-row"><span class="guide-key">A / D</span><span class="guide-desc">Aim Left / Right (+ Click sound)</span></div>
+        <div class="guide-row"><span class="guide-key">Q / W / E</span><span class="guide-desc">Shot Shaper (Draw / Straight / Fade)</span></div>
+        <div class="guide-row"><span class="guide-key">B</span><span class="guide-desc">Center Behind Ball (Ready Stance)</span></div>
+        <div class="guide-row"><span class="guide-key">C / F</span><span class="guide-desc">Orbit Camera / Fullscreen</span></div>
+        <div class="guide-row"><span class="guide-key">R</span><span class="guide-desc">Reset Ball to Active Tee</span></div>
+        <div class="guide-tip">💡 Read green contour dots to gauge break when putting!</div>
+      `;
+    } else {
+      title.innerText = '🎨 DESIGNER CONTROLS & TIPS';
+      body.innerHTML = `
+        <div class="guide-row"><span class="guide-key">V</span><span class="guide-desc">Select Mode (Click Mesh to Move/Rot/Scale)</span></div>
+        <div class="guide-row"><span class="guide-key">B</span><span class="guide-desc">Sculpt Mode (Click / Shift+Drag to Shape)</span></div>
+        <div class="guide-row"><span class="guide-key">A</span><span class="guide-desc">Add Object Mode (Click to Place Prop/Feature)</span></div>
+        <div class="guide-row"><span class="guide-key">X</span><span class="guide-desc">Erase Mode (Click to Delete Object)</span></div>
+        <div class="guide-row"><span class="guide-key">G / R / S</span><span class="guide-desc">Transform Gizmos: Move / Rotate / Scale</span></div>
+        <div class="guide-row"><span class="guide-key">Del / Bksp</span><span class="guide-desc">Delete Selected Object</span></div>
+        <div class="guide-row"><span class="guide-key">RMB / MMB</span><span class="guide-desc">Pan Camera Smoothly</span></div>
+        <div class="guide-tip">🛠️ Use Developer Zone on the right to Push changes or Save as Default Hole!</div>
+      `;
+    }
   }
 }

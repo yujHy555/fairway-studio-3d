@@ -99,6 +99,7 @@ export class Ball {
     // Zero bump distortion to prevent black normal/pole artifacts
     this.mesh.material = mat;
     this.mesh.receiveShadows = true;
+    this.mesh.renderingGroupId = 2; // Always render above putting grid lines and flight tracer
 
     // Subtle radial turf-contact shadow disc directly under the ball so it sits crisply on the surface
     this.contactShadowMesh = MeshBuilder.CreateGround('cup_ballContactShadow', {
@@ -488,6 +489,20 @@ export class Ball {
         this.curSpin = step.nextSpin;
         this.mesh.position.set(step.nextPos.x, step.nextPos.y, step.nextPos.z);
 
+        // Instant Out-Of-Bounds detection in flight as soon as ball exits the main hole land boundary
+        if (
+          this.mesh.position.x < 24 ||
+          this.mesh.position.x > 196 ||
+          this.mesh.position.z < 18 ||
+          this.mesh.position.z > 418
+        ) {
+          this.state = BallState.AT_REST;
+          this.curVelocity = { x: 0, y: 0, z: 0 };
+          this.clearTracer();
+          this.onOutOfBounds?.();
+          return;
+        }
+
         // Check tree trunk/canopy collisions in flight
         this.checkTreeColliders();
 
@@ -605,12 +620,12 @@ export class Ball {
         }
       }
 
-      // 2. Course boundary containment (Out of bounds)
+      // 2. Early Course boundary containment (Out of bounds as soon as it exits main golf hole land)
       if (
-        this.mesh.position.x < 3 ||
-        this.mesh.position.x > this.terrain.width - 3 ||
-        this.mesh.position.z < 3 ||
-        this.mesh.position.z > this.terrain.length - 3
+        this.mesh.position.x < 24 ||
+        this.mesh.position.x > 196 ||
+        this.mesh.position.z < 18 ||
+        this.mesh.position.z > 418
       ) {
         this.state = BallState.AT_REST;
         this.curVelocity = { x: 0, y: 0, z: 0 };
@@ -832,13 +847,22 @@ export class Ball {
       livePath.push(this.tracerPoints[i]);
     }
 
-    const tipDist = Vector3.Distance(livePath[livePath.length - 1], pt);
+    // Offset the live tip slightly behind the trailing ball surface so the tracer tube never covers or overlaps the ball
+    const speed = Math.hypot(this.curVelocity.x, this.curVelocity.y, this.curVelocity.z);
+    let targetTip = pt.clone();
+    if (speed > 0.4) {
+      targetTip.x -= (this.curVelocity.x / speed) * 0.055;
+      targetTip.y -= (this.curVelocity.y / speed) * 0.055;
+      targetTip.z -= (this.curVelocity.z / speed) * 0.055;
+    }
+
+    const tipDist = Vector3.Distance(livePath[livePath.length - 1], targetTip);
     if (tipDist > 0.005) {
       if (tipDist < 0.10 && livePath.length >= 2) {
         // Move the final point smoothly instead of inserting a tiny segment that twists Frenet frames
-        livePath[livePath.length - 1] = pt.clone();
+        livePath[livePath.length - 1] = targetTip.clone();
       } else {
-        livePath.push(pt.clone());
+        livePath.push(targetTip.clone());
       }
     }
 
@@ -860,13 +884,14 @@ export class Ball {
       }
       this.tracerMesh = MeshBuilder.CreateTube('ballToptracer', {
         path: finalPath,
-        radius: 0.048,
+        radius: 0.045,
         tessellation: 12,
         cap: Mesh.CAP_ALL,
         updatable: false
       }, this.scene);
       this.tracerMesh.material = this.tracerMaterial;
       this.tracerMesh.isPickable = false;
+      this.tracerMesh.renderingGroupId = 1; // Render under the golf ball (groupId 2)
     }
   }
 

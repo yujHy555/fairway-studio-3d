@@ -4,7 +4,8 @@ import {
   MeshBuilder,
   StandardMaterial,
   Color3,
-  Vector3
+  Vector3,
+  Quaternion
 } from '@babylonjs/core';
 import { TerrainGrid } from './TerrainGrid';
 
@@ -40,6 +41,7 @@ export class DesignerBrushVisualizer {
     this.ringMat = new StandardMaterial('brushRingMat', this.scene);
     this.ringMat.emissiveColor = new Color3(0.2, 0.9, 1.0); // Vibrant cyan
     this.ringMat.disableLighting = true;
+    this.ringMat.zOffset = -3;
     this.ringMesh.material = this.ringMat;
 
     // 2. Semi-transparent disc fill
@@ -55,6 +57,7 @@ export class DesignerBrushVisualizer {
     this.fillMat.emissiveColor = new Color3(0.1, 0.45, 0.6);
     this.fillMat.alpha = 0.22;
     this.fillMat.disableLighting = true;
+    this.fillMat.zOffset = -2;
     this.fillDisc.material = this.fillMat;
 
     // 3. Center Target Dot
@@ -73,12 +76,17 @@ export class DesignerBrushVisualizer {
   }
 
   public setConfig(
-    tool: 'sculpt' | 'stamp' | 'set_tee' | 'set_pin',
+    tool: 'select' | 'sculpt' | 'stamp' | 'set_tee' | 'set_pin' | 'erase',
     sculptMode: 'raise' | 'lower' | 'flatten' | 'smooth',
     radius: number,
     presetDimensions?: { width: number; length: number }
   ) {
     this.radius = radius;
+
+    if (tool === 'select' || tool === 'erase') {
+      this.setVisible(false);
+      return;
+    }
 
     let color: Color3;
     let scaleX = radius;
@@ -116,12 +124,22 @@ export class DesignerBrushVisualizer {
   public updatePosition(hitPoint: Vector3) {
     if (!this.isVisible) return;
 
-    const normal = this.terrain.getNormal(hitPoint.x, hitPoint.z);
-    this.group.position.set(hitPoint.x, hitPoint.y + 0.08, hitPoint.z);
+    const rawNormal = this.terrain.getNormal(hitPoint.x, hitPoint.z);
+    const groundNormal = new Vector3(rawNormal.x, rawNormal.y, rawNormal.z).normalize();
+    const groundY = this.terrain.getElevation(hitPoint.x, hitPoint.z);
+    this.group.position.set(hitPoint.x, groundY + 0.12, hitPoint.z);
 
-    // Lay disc flush with terrain slope
-    this.group.rotation.x = normal.z * 0.75;
-    this.group.rotation.z = -normal.x * 0.75;
+    // Mathematically align visualizer plane flush with the terrain tangent plane
+    const up = Vector3.Up();
+    const rotAxis = Vector3.Cross(up, groundNormal);
+    const dot = Math.max(-1, Math.min(1, Vector3.Dot(up, groundNormal)));
+    const rotAngle = Math.acos(dot);
+    if (rotAxis.lengthSquared() > 0.0001) {
+      rotAxis.normalize();
+      this.group.rotationQuaternion = Quaternion.RotationAxis(rotAxis, rotAngle);
+    } else {
+      this.group.rotationQuaternion = Quaternion.Identity();
+    }
   }
 
   public setVisible(visible: boolean) {

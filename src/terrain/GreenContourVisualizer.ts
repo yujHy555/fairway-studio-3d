@@ -235,6 +235,7 @@ export class GreenContourVisualizer {
         this.scene
       );
       this.contourLineGrid.isPickable = false;
+      this.contourLineGrid.renderingGroupId = 0; // Under ball (groupId 2)
       this.contourLineGrid.setEnabled(this.showGrid);
     }
 

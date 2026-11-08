@@ -256,11 +256,11 @@ export class TerrainGrid {
       this.redrawSplatTexture();
     };
 
-    // 3. Load genuine 4K PBR brown_mud_leaves_diff_2k.jpg for the Rough section
+    // 3. Load genuine PBR grass_pbr_diff.jpg for the lush fairway/rough ground turf
     const roughImg = new Image();
-    roughImg.src = '/textures/pbr_rough/brown_mud_leaves_diff_2k.jpg';
+    roughImg.src = '/textures/pbr_grass/grass_pbr_diff.jpg';
     roughImg.onload = () => {
-      const { canvas } = buildEqualizedPhotoCanvas(roughImg, 1024, 28, 1.05);
+      const { canvas } = buildEqualizedPhotoCanvas(roughImg, 1024, 20, 1.10);
       this.roughPhotoTile = canvas;
       this.redrawSplatTexture();
     };
@@ -489,10 +489,15 @@ export class TerrainGrid {
           const sandEdgeY = sandFloorY + 0.28;
 
           if (rMeters <= rSand) {
-            // Smooth C1 concave sand basin reaching sandEdgeY with zero height step or normal discontinuity
+            // Authentic tournament raked sand floor: flat & level across central 65%, gently curving up only near rim
             const normR = rMeters / Math.max(0.5, rSand);
-            const bowl = 0.5 * (1.0 - Math.cos(normR * Math.PI));
-            h = sandFloorY + (sandEdgeY - sandFloorY) * bowl;
+            if (normR <= 0.65) {
+              h = sandFloorY;
+            } else {
+              const tEdge = (normR - 0.65) / 0.35;
+              const sCurve = 0.5 * (1.0 - Math.cos(tEdge * Math.PI));
+              h = sandFloorY + (sandEdgeY - sandFloorY) * sCurve;
+            }
           } else if (rMeters <= rLipRim) {
             // Defined 1.35m wide revetted sod lip rising continuously from sandEdgeY to rimY
             const tLip = (rMeters - rSand) / lipWidth;
@@ -1006,17 +1011,17 @@ export class TerrainGrid {
     dCtx.fillRect(0, 0, 1024, 1024);
     this.highResGrassDetailTex.update(false);
 
-    const pbrRoughNormalTex = new Texture('/textures/pbr_rough/brown_mud_leaves_nor_2k.png', this.scene);
-    pbrRoughNormalTex.uScale = 85;
-    pbrRoughNormalTex.vScale = 175;
-    pbrRoughNormalTex.level = 0.35;
+    const pbrGrassNormalTex = new Texture('/textures/pbr_grass/grass_pbr_nor.jpg', this.scene);
+    pbrGrassNormalTex.uScale = 72;
+    pbrGrassNormalTex.vScale = 150;
+    pbrGrassNormalTex.level = 0.16; // Crisp fine turf normal relief without steep slope cross-hatching
 
     const mat = new StandardMaterial('terrainMat', this.scene);
     mat.diffuseTexture = this.splatTexture;
     mat.ambientTexture = this.highResGrassDetailTex;
-    mat.bumpTexture = pbrRoughNormalTex;
-    mat.specularColor = new Color3(0.05, 0.06, 0.04);
-    mat.specularPower = 48;
+    mat.bumpTexture = pbrGrassNormalTex;
+    mat.specularColor = new Color3(0.04, 0.05, 0.03);
+    mat.specularPower = 36;
     mat.backFaceCulling = false;
     mesh.material = mat;
 
@@ -1461,18 +1466,10 @@ export class TerrainGrid {
       ctx.lineWidth = 1.6;
       ctx.stroke();
 
-      // 3. Pure seamless sand bed
+      // 3. Pure seamless AAA tournament sand bed with uniform shading across entire floor
       this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
       ctx.fillStyle = patterns.sandPattern;
       ctx.fill();
-
-      // 4. Silky-smooth sand-to-lip transitional blend (zero dark artifacts)
-      ctx.save();
-      this.traceLocalMeterPolygon(ctx, baseSandPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
-      ctx.strokeStyle = 'rgba(235, 224, 198, 0.65)';
-      ctx.lineWidth = 2.0 * sX;
-      ctx.stroke();
-      ctx.restore();
 
     } else if (feat.surfaceType === SurfaceType.TEE) {
       // Base inside Tee Box plateau (0.90x) in local meters with narrower fringe & first-cut rings
@@ -1662,8 +1659,11 @@ export class TerrainGrid {
         this.normals[pIdx + 1] = ny / len;
         this.normals[pIdx + 2] = nz / len;
 
-        const laplacian = ((hL + hR + hD + hU) * 0.25) - hC;
-        const cavityAO = Math.max(0.84, Math.min(1.03, 1.0 - laplacian * 0.16));
+        let cavityAO = 1.0;
+        if (this.surfaceTypes[vIdx] !== SurfaceType.BUNKER) {
+          const laplacian = ((hL + hR + hD + hU) * 0.25) - hC;
+          cavityAO = Math.max(0.92, Math.min(1.02, 1.0 - laplacian * 0.08));
+        }
         this.colors[cIdx] = cavityAO;
         this.colors[cIdx + 1] = cavityAO;
         this.colors[cIdx + 2] = cavityAO;
@@ -1720,7 +1720,7 @@ export class TerrainGrid {
               let ny = 1.0;
               let nz = (hD - hU) / (2 * eps);
               // Clamp upward normal to guarantee slope receives sunlight without pitch-black diffuse shadows
-              ny = Math.max(0.68, ny);
+              ny = Math.max(0.85, ny);
               const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1.0;
 
               this.normals[pIdx] = nx / len;
