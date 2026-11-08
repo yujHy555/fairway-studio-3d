@@ -75,6 +75,9 @@ export class CourseManager {
     // 4. Left Outer Elbow Kidney Bunker (flanks the outer elbow outside the fairway contour)
     this.terrain.stampFeature(80, 232, 15, 26, -0.25, SurfaceType.BUNKER, -1.40, 0.75);
 
+    // 4b. Middle Fairway Hazard Bunker at 250m from Tee Box (guards central fairway landing zone)
+    this.terrain.stampFeature(122, 280, 13, 21, -0.15, SurfaceType.BUNKER, -1.35, 0.70);
+
     // 5. Scenic Water Hazard Pond flanking the right side of the valley approach
     const pondRimElevation = this.terrain.getBaseElevation(168, 282);
     this.terrain.stampFeature(168, 282, 24, 42, 0.22, SurfaceType.WATER, -2.4);
@@ -84,13 +87,24 @@ export class CourseManager {
     // 6. Lower Tournament Green at (148, 360) — sits ~0.95m lower than the approach fairway
     this.terrain.stampFeature(148, 360, 28, 34, 0.15, SurfaceType.GREEN, 0.0);
 
-    // 7. Greenside Front-Left Kidney Bunker with deep revetted sod lip
-    this.terrain.stampFeature(131, 350, 12, 18, 0.45, SurfaceType.BUNKER, -1.45, 0.78);
+    // 7. Greenside Front-Left Kidney Bunker nestled just next to the green collar
+    this.terrain.stampFeature(123, 353, 12, 20, 0.22, SurfaceType.BUNKER, -1.35, 0.08);
 
-    // 8. Greenside Back-Right Kidney Bunker
-    this.terrain.stampFeature(164, 366, 11, 16, -0.40, SurfaceType.BUNKER, -1.35, 0.70);
+    // 8. Greenside Right Kidney Bunker nestled just next to the green collar
+    this.terrain.stampFeature(172, 365, 11, 18, -0.28, SurfaceType.BUNKER, -1.30, 0.08);
 
-    // 9. Scatter the new realistic 3D Pine Tree model (pine_tree_medium_01_01.glb) around the level/scene
+    // 9. Place 2 high-detail Hero Trees (hero_tree_01_01.glb) framing the Elevated Tee Box
+    const heroTreePositions = [
+      { x: 75, z: 48, s: 1.0, rot: 0.45 },
+      { x: 115, z: 50, s: 0.96, rot: 2.35 }
+    ];
+    for (const h of heroTreePositions) {
+      const hy = this.terrain.getElevation(h.x, h.z);
+      const heroTree = this.scenery.createHeroTree(h.x, hy, h.z, h.s, h.rot);
+      this.sceneryMeshes.push(heroTree);
+    }
+
+    // 10. Scatter the realistic 3D Pine Tree model (pine_tree_medium_01_01.glb) around the level/scene
     const treePositions = [
       // Framing behind & around the Elevated Tee Box
       { x: 58, z: 24, s: 0.95 }, { x: 74, z: 20, s: 1.08 }, { x: 116, z: 22, s: 1.02 }, { x: 134, z: 28, s: 0.90 },

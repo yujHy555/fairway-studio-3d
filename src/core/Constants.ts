@@ -26,45 +26,45 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.ROUGH]: {
     name: 'Rough',
     color: [0.22, 0.48, 0.18],     // Deep lush grass green
-    restitution: 0.22,
-    friction: 0.82,
-    rollingResistance: 0.85,       // Decisive stop in rough
-    liePenalty: 0.75,              // 75% power from rough
-    spinMultiplier: 0.50           // Fliers / reduced spin
+    restitution: 0.12,             // Very low bounce in tall grass
+    friction: 0.85,                // Heavy turf friction
+    rollingResistance: 1.15,       // High resistance; ball stops in 1-3m
+    liePenalty: 0.72,              // 72% power from deep rough
+    spinMultiplier: 0.45           // Fliers / reduced spin
   },
   [SurfaceType.FAIRWAY]: {
     name: 'Fairway',
     color: [0.38, 0.70, 0.28],     // Crisp bright fairway green
-    restitution: 0.42,
-    friction: 0.36,
-    rollingResistance: 0.28,       // Natural rollout and decisive stop
+    restitution: 0.46,             // Solid, lively bounce forward
+    friction: 0.28,                // Low friction lets ball run
+    rollingResistance: 0.22,       // Natural PGA-style rollout (20-30m for driver)
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
   [SurfaceType.GREEN]: {
     name: 'Green',
     color: [0.28, 0.78, 0.38],     // Silky manicured putting green
-    restitution: 0.45,
+    restitution: 0.35,             // Controlled receptive green bounce
     friction: 0.18,
-    rollingResistance: 0.08,       // Tournament stimp speed allowing full-range putts
+    rollingResistance: 0.08,       // Fast tournament Stimp 11.5 for precision putts
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
   [SurfaceType.BUNKER]: {
     name: 'Bunker',
     color: [0.91, 0.82, 0.59],     // Warm golden sand
-    restitution: 0.05,             // Soft sand plug with tiny hop
-    friction: 0.96,
-    rollingResistance: 1.4,        // Instant sand plug
-    liePenalty: 0.60,
-    spinMultiplier: 0.35
+    restitution: 0.02,             // Minimal bounce; sand deadens impact immediately
+    friction: 0.98,                // Heavy sand grab
+    rollingResistance: 1.80,       // Instant plug / decisive stop
+    liePenalty: 0.55,
+    spinMultiplier: 0.30
   },
   [SurfaceType.TEE]: {
     name: 'Tee Box',
     color: [0.42, 0.75, 0.32],
-    restitution: 0.40,
-    friction: 0.35,
-    rollingResistance: 0.35,
+    restitution: 0.42,
+    friction: 0.32,
+    rollingResistance: 0.30,
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
@@ -89,17 +89,17 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FRINGE]: {
     name: 'Green Fringe',
     color: [0.33, 0.74, 0.33],     // Vivid fringe collar surrounding the green
-    restitution: 0.38,
-    friction: 0.30,
-    rollingResistance: 0.30,       // Slightly slower than green; puttable
+    restitution: 0.26,             // Less bounce than fairway
+    friction: 0.48,                // Moderate resistance
+    rollingResistance: 0.42,       // Checks runaway balls
     liePenalty: 0.95,
     spinMultiplier: 0.90
   },
   [SurfaceType.FIRST_CUT]: {
     name: 'First Cut',
     color: [0.29, 0.58, 0.22],     // Intermediate cut bordering fairway
-    restitution: 0.32,
-    friction: 0.52,
+    restitution: 0.24,             // Less bounce than fairway
+    friction: 0.58,                // Moderate-high grab
     rollingResistance: 0.55,       // Catches runaway fairway rollouts cleanly
     liePenalty: 0.88,
     spinMultiplier: 0.75

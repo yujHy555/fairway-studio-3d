@@ -1,29 +1,164 @@
-// Procedural Web Audio synthesizer for crisp, low-latency golf audio effects
+// High-fidelity Golf Audio Engine supporting authentic recorded audio samples
+// with procedural synthesis fallback and looping forest ambience.
 
 class GolfAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private ambientGain: GainNode | null = null;
   private isMuted: boolean = false;
+
+  // Cached audio buffers for authentic recorded sounds
+  private audioBuffers: Map<string, AudioBuffer> = new Map();
+  private isPreloading: boolean = false;
+  private ambientSource: AudioBufferSourceNode | null = null;
+  private ambientPlaying: boolean = false;
+
+  constructor() {
+    // Lazy preload once page is interactive
+    if (typeof window !== 'undefined') {
+      window.addEventListener('click', () => this.handleFirstInteraction(), { once: true });
+      window.addEventListener('keydown', () => this.handleFirstInteraction(), { once: true });
+      window.addEventListener('pointerdown', () => this.handleFirstInteraction(), { once: true });
+    }
+  }
 
   private initContext() {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.5;
+      this.masterGain.gain.value = 0.65;
       this.masterGain.connect(this.ctx.destination);
+
+      this.ambientGain = this.ctx.createGain();
+      this.ambientGain.gain.value = 0.28; // Subtle relaxing background level
+      this.ambientGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
   }
 
+  private handleFirstInteraction() {
+    this.initContext();
+    this.preloadAudioSamples();
+    this.startAmbientLoop();
+  }
+
+  /**
+   * Preloads user-provided audio samples:
+   * - driver_hit_01.mp3
+   * - golf_hit_generic_01.mp3
+   * - putter_hit_01.mp3
+   * - hole_01.mp3
+   * - ambient_forest_sounds_01.mp3
+   */
+  public async preloadAudioSamples() {
+    if (this.isPreloading) return;
+    this.isPreloading = true;
+    this.initContext();
+
+    const files = [
+      { key: 'driver', url: '/audio/driver_hit_01.mp3' },
+      { key: 'generic_hit', url: '/audio/golf_hit_generic_01.mp3' },
+      { key: 'putter', url: '/audio/putter_hit_01.mp3' },
+      { key: 'hole', url: '/audio/hole_01.mp3' },
+      { key: 'ambient', url: '/audio/ambient_forest_sounds_01.mp3' }
+    ];
+
+    for (const item of files) {
+      try {
+        const resp = await fetch(item.url);
+        if (resp.ok) {
+          const arrayBuf = await resp.arrayBuffer();
+          if (this.ctx) {
+            const audioBuf = await this.ctx.decodeAudioData(arrayBuf);
+            this.audioBuffers.set(item.key, audioBuf);
+          }
+        }
+      } catch (e) {
+        console.warn(`Failed loading audio sample: ${item.url}`, e);
+      }
+    }
+
+    if (!this.ambientPlaying && !this.isMuted) {
+      this.startAmbientLoop();
+    }
+  }
+
+  public startAmbientLoop() {
+    this.initContext();
+    if (!this.ctx || !this.ambientGain || this.isMuted || this.ambientPlaying) return;
+
+    const buf = this.audioBuffers.get('ambient');
+    if (!buf) {
+      // Retry shortly once buffer finishes decoding
+      setTimeout(() => {
+        if (!this.ambientPlaying && !this.isMuted) this.startAmbientLoop();
+      }, 500);
+      return;
+    }
+
+    try {
+      if (this.ambientSource) {
+        try { this.ambientSource.stop(); } catch { /* ignore */ }
+      }
+      this.ambientSource = this.ctx.createBufferSource();
+      this.ambientSource.buffer = buf;
+      this.ambientSource.loop = true;
+      this.ambientSource.connect(this.ambientGain);
+      this.ambientSource.start(0);
+      this.ambientPlaying = true;
+    } catch (e) {
+      console.warn('Error starting ambient loop:', e);
+    }
+  }
+
+  public stopAmbientLoop() {
+    if (this.ambientSource) {
+      try { this.ambientSource.stop(); } catch { /* ignore */ }
+      this.ambientSource = null;
+    }
+    this.ambientPlaying = false;
+  }
+
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     if (this.masterGain) {
-      this.masterGain.gain.value = this.isMuted ? 0 : 0.5;
+      this.masterGain.gain.value = this.isMuted ? 0 : 0.65;
+    }
+    if (this.ambientGain) {
+      this.ambientGain.gain.value = this.isMuted ? 0 : 0.28;
+    }
+    if (!this.isMuted && !this.ambientPlaying) {
+      this.startAmbientLoop();
     }
     return this.isMuted;
+  }
+
+  private playBuffer(key: string, volume = 1.0, playbackRate = 1.0): boolean {
+    this.initContext();
+    if (!this.ctx || !this.masterGain || this.isMuted) return false;
+
+    const buf = this.audioBuffers.get(key);
+    if (!buf) return false;
+
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = playbackRate;
+
+      const gain = this.ctx.createGain();
+      gain.gain.value = Math.max(0.1, Math.min(1.8, volume));
+
+      src.connect(gain);
+      gain.connect(this.masterGain);
+      src.start(0);
+      return true;
+    } catch (e) {
+      console.warn('playBuffer error:', e);
+      return false;
+    }
   }
 
   public playSwingWhoosh(speedPercent = 1.0) {
@@ -61,27 +196,52 @@ class GolfAudioEngine {
     noise.stop(now + 0.4);
   }
 
-  public playClubImpact(category: 'wood' | 'iron' | 'wedge' | 'putter', power = 1.0) {
+  /**
+   * Plays club impact sound:
+   * - Driver uses driver_hit_01
+   * - Putter uses putter_hit_01
+   * - Irons, Wedges, and Fairway Woods use golf_hit_generic_01
+   */
+  public playClubImpact(category: 'wood' | 'iron' | 'wedge' | 'putter', power = 1.0, isDriver = false) {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    if (this.isMuted) return;
+
+    if (category === 'putter') {
+      const vol = Math.max(0.4, Math.min(1.2, power * 1.4));
+      if (this.playBuffer('putter', vol, 0.98 + (Math.random() - 0.5) * 0.04)) {
+        return;
+      }
+    } else if (isDriver) {
+      const vol = Math.max(0.6, Math.min(1.5, power * 1.1));
+      if (this.playBuffer('driver', vol, 0.99 + (Math.random() - 0.5) * 0.03)) {
+        return;
+      }
+    } else {
+      // Irons, Wedges, Fairway Woods
+      const vol = Math.max(0.5, Math.min(1.4, power * 1.15));
+      if (this.playBuffer('generic_hit', vol, 0.98 + (Math.random() - 0.5) * 0.05)) {
+        return;
+      }
+    }
+
+    // Procedural fallback if buffer has not finished loading
+    if (!this.ctx || !this.masterGain) return;
     const now = this.ctx.currentTime;
 
-    if (category === 'wood') {
-      // Crisp driver "PING" + solid resonance
+    if (category === 'wood' || isDriver) {
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(4200, now);
-      osc.frequency.exponentialRampToValueAtTime(2400, now + 0.08);
+      osc.frequency.setValueAtTime(3800, now);
+      osc.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
 
       const oscGain = this.ctx.createGain();
-      oscGain.gain.setValueAtTime(0.6 * power, now);
+      oscGain.gain.setValueAtTime(0.7 * power, now);
       oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
 
-      // Metallic body thud
       const thud = this.ctx.createOscillator();
       thud.type = 'triangle';
-      thud.frequency.setValueAtTime(320, now);
-      thud.frequency.exponentialRampToValueAtTime(80, now + 0.09);
+      thud.frequency.setValueAtTime(280, now);
+      thud.frequency.exponentialRampToValueAtTime(70, now + 0.09);
 
       const thudGain = this.ctx.createGain();
       thudGain.gain.setValueAtTime(0.8 * power, now);
@@ -98,7 +258,6 @@ class GolfAudioEngine {
       thud.stop(now + 0.15);
 
     } else if (category === 'iron') {
-      // Solid steel "THWACK"
       const osc = this.ctx.createOscillator();
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(950, now);
@@ -114,7 +273,6 @@ class GolfAudioEngine {
       osc.stop(now + 0.1);
 
     } else if (category === 'wedge') {
-      // Crisp blade compression "CLICK-CHIP"
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(1800, now);
@@ -130,14 +288,13 @@ class GolfAudioEngine {
       osc.stop(now + 0.08);
 
     } else {
-      // Putter: Pure subtle hollow "TICK"
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(1100, now);
       osc.frequency.exponentialRampToValueAtTime(600, now + 0.03);
 
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.3 * Math.min(1.0, power * 2), now);
+      gain.gain.setValueAtTime(0.4 * Math.min(1.0, power * 2), now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
       osc.connect(gain);
@@ -154,8 +311,8 @@ class GolfAudioEngine {
     const vol = Math.min(1.0, Math.max(0.1, intensity));
 
     if (surface === 'sand') {
-      // Low sand splash "THUFF"
-      const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.2, this.ctx.sampleRate);
+      // Soft sand deadening "THUD"
+      const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       const src = this.ctx.createBufferSource();
@@ -163,28 +320,28 @@ class GolfAudioEngine {
 
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(400, now);
+      filter.frequency.setValueAtTime(320, now);
 
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.7 * vol, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      gain.gain.setValueAtTime(0.8 * vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
       src.connect(filter);
       filter.connect(gain);
       gain.connect(this.masterGain);
       src.start(now);
-      src.stop(now + 0.2);
+      src.stop(now + 0.15);
 
     } else {
       // Grass bounce / tap
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
-      const freq = surface === 'green' ? 240 : 180;
+      const freq = surface === 'green' ? 240 : (surface === 'fairway' ? 200 : 160);
       osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.exponentialRampToValueAtTime(60, now + 0.04);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.04);
 
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.4 * vol, now);
+      gain.gain.setValueAtTime(0.45 * vol, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
       osc.connect(gain);
@@ -194,12 +351,21 @@ class GolfAudioEngine {
     }
   }
 
+  /**
+   * Sound of golf ball going into the cup / hole
+   * Uses user-provided hole_01.mp3
+   */
   public playCupDrop() {
     this.initContext();
-    if (!this.ctx || !this.masterGain || this.isMuted) return;
-    const now = this.ctx.currentTime;
+    if (this.isMuted) return;
 
-    // Plastic cup bottom hit + flagstick rattle
+    if (this.playBuffer('hole', 1.2, 1.0)) {
+      return;
+    }
+
+    // Procedural fallback
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
     [
       { freq: 880, delay: 0.0, vol: 0.7 },
       { freq: 1100, delay: 0.04, vol: 0.5 },
@@ -221,6 +387,64 @@ class GolfAudioEngine {
       osc.start(t);
       osc.stop(t + 0.09);
     });
+  }
+
+  /**
+   * Ball deflection sound when striking a solid tree trunk
+   */
+  public playTreeHit(speedPercent = 1.0) {
+    this.initContext();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const vol = Math.min(1.3, Math.max(0.3, speedPercent * 1.1));
+
+    // Hard wood "THWACK-KNOCK"
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(460, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.07);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.9 * vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.14);
+  }
+
+  /**
+   * Foliage / branch brush sound when ball enters tree canopy
+   */
+  public playBranchDeflection() {
+    this.initContext();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.22);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1400, now);
+    filter.frequency.exponentialRampToValueAtTime(600, now + 0.18);
+    filter.Q.value = 2.0;
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.45, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    noise.start(now);
+    noise.stop(now + 0.22);
   }
 
   public playWaterSplash() {

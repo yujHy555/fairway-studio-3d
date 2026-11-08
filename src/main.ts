@@ -111,6 +111,7 @@ class FairwayStudioApp {
 
     // 7. Dimpled Regulation Golf Ball & Swing Engine
     this.ball = new Ball(this.scene, this.terrain);
+    this.ball.setTreeColliders(this.scenery.treeColliders);
     this.swingEngine = new SwingEngine(this.activeClub);
 
     // 8. Clean Aim State Tracker (zero artificial blue target rings)
@@ -425,6 +426,9 @@ class FairwayStudioApp {
       onSwingAction: () => {
         if (this.activeMode !== 'play') return;
         if (this.ball.state === BallState.IN_FLIGHT || this.ball.state === BallState.ROLLING) return;
+        if (this.aimSystem) {
+          this.aimSystem.hideAimArrow();
+        }
         this.swingEngine.handleActionClick();
       },
       onAimAdjust: (deltaDeg) => {
@@ -433,6 +437,7 @@ class FairwayStudioApp {
         this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
         if (this.aimSystem) {
           this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+          this.aimSystem.showAimArrow(this.ball.position);
           this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
         }
         this.cameraCtrl.setAimHeading(this.ball.position, this.currentAimAzimuth);
@@ -460,6 +465,38 @@ class FairwayStudioApp {
           this.cameraCtrl.setMode('aim');
           this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
         }
+      },
+      onFocusBall: () => {
+        // Strictly only when the ball has settled/is stationary
+        if (this.activeMode !== 'play') return;
+        if (this.ball.state !== BallState.AIMING && this.ball.state !== BallState.AT_REST) return;
+
+        const hole = this.courseManager.currentHole;
+        const pin = hole.pinPosition;
+        const dxPin = pin.x - this.ball.position.x;
+        const dzPin = pin.z - this.ball.position.z;
+        const distToPin = Math.hypot(dxPin, dzPin);
+
+        // If on the tee box of a dogleg hole, face the initial dogleg landing waypoint; otherwise face the pin
+        let targetPt = pin;
+        if (this.ball.currentSurface === SurfaceType.TEE && hole.waypoints && hole.waypoints.length > 0 && distToPin > 220) {
+          targetPt = hole.waypoints[0];
+        }
+
+        const dx = targetPt.x - this.ball.position.x;
+        const dz = targetPt.z - this.ball.position.z;
+        this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+        this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+
+        if (this.aimSystem) {
+          this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+          this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+        }
+
+        this.cameraCtrl.setMode('aim');
+        this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+        this.ball.triggerReadyFlashIndicator();
+        this.updateHUDDisplay();
       },
       onResetShot: () => {
         this.placeBallAtActiveTee();
@@ -544,41 +581,44 @@ class FairwayStudioApp {
       if (state === BallState.AT_REST) {
         const holed = this.ball.checkHoleIn(this.courseManager.currentHole.pinPosition);
         if (!holed) {
-          this.ui.setSwingEnabled(true);
-          if (this.aimSystem && this.activeMode === 'play') {
-            const pin = this.courseManager.currentHole.pinPosition;
-            const dx = pin.x - this.ball.position.x;
-            const dz = pin.z - this.ball.position.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
-            this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
-            this.activeClub = getRecommendedClub(dist, lie === SurfaceType.GREEN);
-            this.swingEngine.setClub(this.activeClub);
-            this.swingEngine.setLie(lie);
-            this.aimSystem.targetDistanceMeters = Math.min(dist, this.activeClub.typicalCarryMeters);
-            this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
-            this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
-            this.aimSystem.setVisible(true);
-          }
+          const pin = this.courseManager.currentHole.pinPosition;
+          const dx = pin.x - this.ball.position.x;
+          const dz = pin.z - this.ball.position.z;
+          const dist = Math.hypot(dx, dz);
+          this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
+          this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
 
+          const isGreen = (lie === SurfaceType.GREEN || this.ball.currentSurface === SurfaceType.GREEN);
+          this.activeClub = getRecommendedClub(dist, isGreen);
+          this.swingEngine.setClub(this.activeClub);
+          this.swingEngine.setLie(this.ball.currentSurface);
+
+          // Prompt and smooth 450ms settle transition so player is never stuck waiting
           setTimeout(() => {
-            if (this.ball.state !== BallState.AT_REST) return;
+            if (this.ball.state !== BallState.AT_REST && this.ball.state !== BallState.AIMING) return;
 
-            this.cameraCtrl.setMode(lie === SurfaceType.GREEN ? 'green' : 'aim');
-            const pin = this.courseManager.currentHole.pinPosition;
-            const dx = pin.x - this.ball.position.x;
-            const dz = pin.z - this.ball.position.z;
-            this.currentAimAzimuth = (Math.atan2(dx, dz) * 180) / Math.PI;
-            this.swingEngine.aimAzimuthDeg = this.currentAimAzimuth;
+            const onPuttingGreen = (this.ball.currentSurface === SurfaceType.GREEN);
+            this.cameraCtrl.setMode(onPuttingGreen ? 'green' : 'aim');
 
-            if (this.cameraCtrl.mode === 'aim') {
-              this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
-            } else {
-              this.cameraCtrl.focusOnPin(pin);
+            // In BOTH green/putting and regular aim modes: snap camera right behind the ball aiming at the cup!
+            this.cameraCtrl.snapAimBehindBall(this.ball.position, this.currentAimAzimuth);
+
+            // Re-arm ball for next shot/putt and trigger the 3-flash ready indicator
+            this.ball.state = BallState.AIMING;
+            this.ball.triggerReadyFlashIndicator();
+
+            this.swingEngine.reset();
+            this.ui.setSwingEnabled(true);
+
+            if (this.aimSystem && this.activeMode === 'play') {
+              this.aimSystem.targetDistanceMeters = Math.min(dist, this.activeClub.typicalCarryMeters);
+              this.aimSystem.aimHeadingDeg = this.currentAimAzimuth;
+              this.aimSystem.update(this.ball.position, this.activeClub, this.swingEngine.windSpeedMps, this.swingEngine.windHeadingDeg);
+              this.aimSystem.setVisible(true);
             }
 
             this.updateHUDDisplay();
-          }, 1800);
+          }, 450);
         }
       } else if (state === BallState.IN_WATER) {
         this.ui.showToast('Splash! Water hazard. 1 penalty stroke.', 'penalty');
@@ -821,6 +861,7 @@ class FairwayStudioApp {
         const gy = this.terrain.getElevation(gx, gz);
         let createdMesh = null;
         if (p.sceneryType === 'pine') createdMesh = this.scenery.createPineTree(gx, gy, gz);
+        else if (p.sceneryType === 'hero_tree') createdMesh = this.scenery.createHeroTree(gx, gy, gz);
         else if (p.sceneryType === 'oak') createdMesh = this.scenery.createOakTree(gx, gy, gz);
         else if (p.sceneryType === 'rock_cluster') createdMesh = this.scenery.createRockCluster(gx, gy, gz);
         else if (p.sceneryType === 'dam_wall') createdMesh = this.scenery.createDamWall(gx, gy, gz, p.width, 4);

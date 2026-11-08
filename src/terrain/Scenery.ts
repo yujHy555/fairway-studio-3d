@@ -3,6 +3,7 @@ import {
   Mesh,
   MeshBuilder,
   StandardMaterial,
+  DynamicTexture,
   Material,
   Texture,
   Color3,
@@ -13,11 +14,27 @@ import {
 import { GOLF_CONSTANTS } from '../core/Constants';
 import { RealisticTextures } from './RealisticTextures';
 
+export interface TreeCollider {
+  x: number;
+  y: number;
+  z: number;
+  trunkRadius: number;
+  trunkHeight: number;
+  canopyRadius: number;
+  canopyBottomY: number;
+  canopyTopY: number;
+  isHero: boolean;
+}
+
 export class SceneryFactory {
   private scene: Scene;
+  public treeColliders: TreeCollider[] = [];
 
   // Shared realistic materials
   private matGlbPineTree: StandardMaterial;
+  private matHeroBranches: StandardMaterial;
+  private matHeroLeaves: StandardMaterial;
+  private matHeroTrunk: StandardMaterial;
   private matRock: StandardMaterial;
   private matDam: StandardMaterial;
   private matWater: StandardMaterial;
@@ -31,6 +48,12 @@ export class SceneryFactory {
   private pineTreeVertexData: VertexData | null = null;
   private activeTreeMeshes: Mesh[] = [];
 
+  // Master geometry parsed directly from /models/hero_tree_01_01.glb (3 primitives: branches, leaves, trunk)
+  private heroBranchesVertexData: VertexData | null = null;
+  private heroLeavesVertexData: VertexData | null = null;
+  private heroTrunkVertexData: VertexData | null = null;
+  private activeHeroTrees: { branches: Mesh; leaves: Mesh; trunk: Mesh }[] = [];
+
   private activeFlags: Mesh[] = [];
   private windTime = 0;
 
@@ -38,15 +61,39 @@ export class SceneryFactory {
     this.scene = scene;
 
     // 1. Realistic GLB Pine Tree Material (pine_tree_medium_01_01.glb)
+    // Naturally reacts to directional sun and HDRI environment light with clean needle alpha testing
     this.matGlbPineTree = new StandardMaterial('matGlbPineTree', scene);
-    this.matGlbPineTree.diffuseColor = new Color3(0.96, 0.98, 0.94);
-    this.matGlbPineTree.emissiveColor = new Color3(0.05, 0.07, 0.04);
-    this.matGlbPineTree.specularColor = new Color3(0.04, 0.05, 0.03);
-    this.matGlbPineTree.specularPower = 32;
+    this.matGlbPineTree.diffuseColor = new Color3(0.88, 0.92, 0.84);
+    this.matGlbPineTree.emissiveColor = new Color3(0.03, 0.04, 0.02); // Subtle natural sky bounce (never blown out)
+    this.matGlbPineTree.specularColor = new Color3(0.03, 0.04, 0.03);
+    this.matGlbPineTree.specularPower = 48;
     this.matGlbPineTree.backFaceCulling = false;
-    this.matGlbPineTree.twoSidedLighting = true;
+    this.matGlbPineTree.twoSidedLighting = true; // Natural lighting on both faces of crossed planes
     this.matGlbPineTree.transparencyMode = Material.MATERIAL_ALPHATEST;
-    this.matGlbPineTree.alphaCutOff = 0.32;
+    this.matGlbPineTree.alphaCutOff = 0.46;
+
+    // 1b. Hero Specimen Tree Materials (hero_tree_01_01.glb)
+    this.matHeroBranches = new StandardMaterial('matHeroBranches', scene);
+    this.matHeroBranches.diffuseColor = new Color3(0.95, 0.92, 0.88);
+    this.matHeroBranches.emissiveColor = new Color3(0.12, 0.11, 0.09);
+    this.matHeroBranches.specularColor = new Color3(0.05, 0.05, 0.05);
+    this.matHeroBranches.backFaceCulling = false;
+
+    this.matHeroLeaves = new StandardMaterial('matHeroLeaves', scene);
+    this.matHeroLeaves.diffuseColor = new Color3(1.06, 1.12, 1.02);
+    this.matHeroLeaves.emissiveColor = new Color3(0.22, 0.29, 0.18);
+    this.matHeroLeaves.specularColor = new Color3(0.06, 0.08, 0.05);
+    this.matHeroLeaves.specularPower = 48;
+    this.matHeroLeaves.backFaceCulling = false;
+    this.matHeroLeaves.twoSidedLighting = false;
+    this.matHeroLeaves.transparencyMode = Material.MATERIAL_ALPHATEST;
+    this.matHeroLeaves.alphaCutOff = 0.38;
+
+    this.matHeroTrunk = new StandardMaterial('matHeroTrunk', scene);
+    this.matHeroTrunk.diffuseColor = new Color3(0.96, 0.94, 0.90);
+    this.matHeroTrunk.emissiveColor = new Color3(0.12, 0.11, 0.09);
+    this.matHeroTrunk.specularColor = new Color3(0.05, 0.05, 0.05);
+    this.matHeroTrunk.backFaceCulling = false;
 
     // 2. Seamless Granite Boulder Material
     const rockTex = RealisticTextures.createSeamlessRockTextures(scene);
@@ -136,10 +183,65 @@ export class SceneryFactory {
   }
 
   /**
-   * Loads the realistic 3D tree model `/models/pine_tree_medium_01_01.glb` directly from its glTF 2.0 binary container,
-   * extracting the exact mesh geometry, UVs, and embedded PNG foliage/bark atlas & normal textures.
+   * Processes an embedded PNG foliage image by bleeding/dilating RGB colors into transparent border pixels
+   * and boosting needle/leaf vibrancy so trilinear mipmaps stay razor-sharp with zero dark alpha haloing.
+   */
+  private createCrispFoliageTextureFromBlob(blob: Blob, name: string, colorBoost = 1.22): Promise<DynamicTexture> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const w = img.width;
+        const h = img.height;
+        // invertY = false to match glTF 2.0 top-left UV origin
+        const dynTex = new DynamicTexture(name, { width: w, height: h }, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
+        dynTex.hasAlpha = true;
+        dynTex.anisotropicFilteringLevel = 16;
+
+        const ctx = dynTex.getContext() as CanvasRenderingContext2D;
+        ctx.drawImage(img, 0, 0, w, h);
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const px = imgData.data;
+
+        // 1. Natural foliage edge filtering without glowing outlines
+        for (let i = 0; i < px.length; i += 4) {
+          const a = px[i + 3];
+          if (a > 15) {
+            px[i] = Math.min(255, Math.round(px[i] * colorBoost));
+            px[i + 1] = Math.min(255, Math.round(px[i + 1] * colorBoost));
+            px[i + 2] = Math.min(255, Math.round(px[i + 2] * colorBoost));
+          } else {
+            // Fill fully transparent background with dark pine tone (24, 38, 20)
+            // so hardware mipmaps never blend white or light halo fringes
+            px[i] = 24;
+            px[i + 1] = 38;
+            px[i + 2] = 20;
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        // update(false) preserves glTF top-left UV orientation
+        dynTex.update(false);
+        resolve(dynTex);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  /**
+   * Loads both `/models/pine_tree_medium_01_01.glb` and `/models/hero_tree_01_01.glb`
+   * directly from their glTF 2.0 binary containers.
    */
   public async loadTreeModels(): Promise<void> {
+    await Promise.all([
+      this.loadMediumPineTreeGlb(),
+      this.loadHeroTreeGlb()
+    ]);
+  }
+
+  private async loadMediumPineTreeGlb(): Promise<void> {
     try {
       const response = await fetch('/models/pine_tree_medium_01_01.glb');
       if (!response.ok) {
@@ -188,11 +290,11 @@ export class SceneryFactory {
         positions[i * 3 + 1] = py;
         positions[i * 3 + 2] = pz;
 
-        // Smooth hemisphere-biased foliage normal so cross-planes receive natural sunlight from all angles
+        // Radial 3D canopy normal so trees react naturally to sunlight and cast soft self-shadows
         const rLen = Math.hypot(px, pz) || 1.0;
-        const nx = (px / rLen) * 0.42;
-        const ny = 0.86;
-        const nz = (pz / rLen) * 0.42;
+        const nx = (px / rLen) * 0.68;
+        const ny = 0.42 + 0.35 * Math.min(1.0, Math.max(0, py / 12.0));
+        const nz = (pz / rLen) * 0.68;
         const nNorm = Math.hypot(nx, ny, nz) || 1.0;
         normals[i * 3] = nx / nNorm;
         normals[i * 3 + 1] = ny / nNorm;
@@ -213,49 +315,124 @@ export class SceneryFactory {
       vd.indices = indices;
       this.pineTreeVertexData = vd;
 
-      // Apply geometry to any trees already created
       for (const treeMesh of this.activeTreeMeshes) {
         if (!treeMesh.isDisposed()) {
           this.pineTreeVertexData.applyToMesh(treeMesh, false);
         }
       }
 
-      // Extract embedded PNG textures from GLB bufferViews
       const matDef = gltf.materials?.[0];
       const baseColorTexIdx = matDef?.pbrMetallicRoughness?.baseColorTexture?.index;
-      const normalTexIdx = matDef?.normalTexture?.index;
+      if (baseColorTexIdx !== undefined) {
+        const imgIdx = gltf.textures?.[baseColorTexIdx]?.source;
+        const imgDef = gltf.images?.[imgIdx];
+        if (imgDef && imgDef.bufferView !== undefined) {
+          const bv = gltf.bufferViews[imgDef.bufferView];
+          const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+          const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/png' });
+          const crispTex = await this.createCrispFoliageTextureFromBlob(blob, 'pineTreeGlbCrispAlbedo', 1.24);
+          this.matGlbPineTree.diffuseTexture = crispTex;
+          this.matGlbPineTree.opacityTexture = crispTex;
+          this.matGlbPineTree.useAlphaFromDiffuseTexture = true;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load pine_tree_medium_01_01.glb:', err);
+    }
+  }
 
-      const createTextureFromGlbImage = (texIdx: number | undefined, name: string, hasAlpha: boolean): Texture | null => {
-        if (texIdx === undefined) return null;
-        const imgIdx = gltf.textures?.[texIdx]?.source;
+  private async loadHeroTreeGlb(): Promise<void> {
+    try {
+      const response = await fetch('/models/hero_tree_01_01.glb');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading hero_tree_01_01.glb`);
+      }
+      const arrayBuf = await response.arrayBuffer();
+      const view = new DataView(arrayBuf);
+      if (view.getUint32(0, true) !== 0x46546C67) {
+        throw new Error('Invalid GLB header in hero_tree_01_01.glb');
+      }
+
+      const jsonChunkLen = view.getUint32(12, true);
+      const gltf = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(arrayBuf, 20, jsonChunkLen)));
+      const binChunkStart = 20 + jsonChunkLen + 8;
+
+      const buildPrimitiveVertexData = (primIdx: number): VertexData => {
+        const prim = gltf.meshes[0].primitives[primIdx];
+        const posAcc = gltf.accessors[prim.attributes.POSITION];
+        const normAcc = gltf.accessors[prim.attributes.NORMAL];
+        const uvAcc = gltf.accessors[prim.attributes.TEXCOORD_0];
+        const idxAcc = gltf.accessors[prim.indices];
+
+        const posBV = gltf.bufferViews[posAcc.bufferView];
+        const normBV = gltf.bufferViews[normAcc.bufferView];
+        const uvBV = gltf.bufferViews[uvAcc.bufferView];
+        const idxBV = gltf.bufferViews[idxAcc.bufferView];
+
+        const positions = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAcc.count * 3);
+        const normals = new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAcc.count * 3);
+        const uvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAcc.count * 2);
+
+        let indices: Uint32Array | Uint16Array;
+        if (idxAcc.componentType === 5125) {
+          indices = new Uint32Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+        } else {
+          indices = new Uint16Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+        }
+
+        const vd = new VertexData();
+        vd.positions = positions;
+        vd.normals = normals;
+        vd.uvs = uvs;
+        vd.indices = indices;
+        return vd;
+      };
+
+      this.heroBranchesVertexData = buildPrimitiveVertexData(0);
+      this.heroLeavesVertexData = buildPrimitiveVertexData(1);
+      this.heroTrunkVertexData = buildPrimitiveVertexData(2);
+
+      for (const h of this.activeHeroTrees) {
+        if (!h.branches.isDisposed()) this.heroBranchesVertexData.applyToMesh(h.branches, false);
+        if (!h.leaves.isDisposed()) this.heroLeavesVertexData.applyToMesh(h.leaves, false);
+        if (!h.trunk.isDisposed()) this.heroTrunkVertexData.applyToMesh(h.trunk, false);
+      }
+
+      const createOpaqueTextureFromImageIdx = (imgIdx: number, name: string): Texture | null => {
         const imgDef = gltf.images?.[imgIdx];
         if (!imgDef || imgDef.bufferView === undefined) return null;
         const bv = gltf.bufferViews[imgDef.bufferView];
         const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
         const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/png' });
         const url = URL.createObjectURL(blob);
-        // glTF 2.0 UV origin is top-left -> invertY = false
         const tex = new Texture(url, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
         tex.name = name;
-        tex.hasAlpha = hasAlpha;
         tex.anisotropicFilteringLevel = 16;
         return tex;
       };
 
-      const albedoTex = createTextureFromGlbImage(baseColorTexIdx, 'pineTreeGlbAlbedo', true);
-      const normalTex = createTextureFromGlbImage(normalTexIdx, 'pineTreeGlbNormal', false);
-
-      if (albedoTex) {
-        this.matGlbPineTree.diffuseTexture = albedoTex;
-        this.matGlbPineTree.opacityTexture = albedoTex;
-        this.matGlbPineTree.useAlphaFromDiffuseTexture = true;
+      const branchTex = createOpaqueTextureFromImageIdx(0, 'heroBranchDiff');
+      if (branchTex) {
+        this.matHeroBranches.diffuseTexture = branchTex;
       }
-      if (normalTex) {
-        normalTex.level = 0.45;
-        this.matGlbPineTree.bumpTexture = normalTex;
+
+      const trunkTex = createOpaqueTextureFromImageIdx(2, 'heroTrunkDiff');
+      if (trunkTex) {
+        this.matHeroTrunk.diffuseTexture = trunkTex;
+      }
+
+      const leafImgDef = gltf.images?.[1];
+      if (leafImgDef && leafImgDef.bufferView !== undefined) {
+        const bv = gltf.bufferViews[leafImgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: leafImgDef.mimeType || 'image/png' });
+        const crispLeafTex = await this.createCrispFoliageTextureFromBlob(blob, 'heroLeavesCrispDiff', 1.18);
+        this.matHeroLeaves.diffuseTexture = crispLeafTex;
+        this.matHeroLeaves.opacityTexture = crispLeafTex;
+        this.matHeroLeaves.useAlphaFromDiffuseTexture = true;
       }
     } catch (err) {
-      console.error('Failed to load pine_tree_medium_01_01.glb:', err);
+      console.error('Failed to load hero_tree_01_01.glb:', err);
     }
   }
 
@@ -273,11 +450,78 @@ export class SceneryFactory {
     treeMesh.scaling.set(scale, scale, scale);
     treeMesh.rotation.y = rotationY !== undefined ? rotationY : ((x * 1.73 + z * 2.41) % (Math.PI * 2));
     treeMesh.material = this.matGlbPineTree;
-    treeMesh.receiveShadows = true;
+    // Crossed foliage planes should cast shadows onto the terrain without harsh 90-deg self-shadow artifacts
+    treeMesh.receiveShadows = false;
     treeMesh.isPickable = false;
 
     this.activeTreeMeshes.push(treeMesh);
+
+    // Track tree collider for realistic physics deflections
+    this.treeColliders.push({
+      x,
+      y,
+      z,
+      trunkRadius: 0.28 * scale,
+      trunkHeight: 3.2 * scale,
+      canopyRadius: 2.3 * scale,
+      canopyBottomY: y + 1.8 * scale,
+      canopyTopY: y + 12.0 * scale,
+      isHero: false
+    });
+
     return treeMesh;
+  }
+
+  /**
+   * Creates an instance of the high-detail Hero Specimen Tree (`hero_tree_01_01.glb`)
+   * Used sparingly (1-2 near the Tee Box) for maximum close-up realism and performance.
+   */
+  public createHeroTree(x: number, y: number, z: number, scale = 1.0, rotationY?: number): Mesh {
+    const idx = this.activeHeroTrees.length;
+    const root = new Mesh(`hero_tree_root_${idx}`, this.scene);
+    root.position.set(x, y - 0.08, z);
+    // Native height in Blender is ~4.5m; 3.1x scale gives a majestic ~14m specimen tree
+    const s = scale * 3.1;
+    root.scaling.set(s, s, s);
+    root.rotation.y = rotationY !== undefined ? rotationY : ((x * 1.37 + z * 2.19) % (Math.PI * 2));
+
+    const branches = new Mesh(`hero_tree_branches_${idx}`, this.scene);
+    branches.material = this.matHeroBranches;
+    branches.isPickable = false;
+    branches.parent = root;
+
+    const leaves = new Mesh(`hero_tree_leaves_${idx}`, this.scene);
+    leaves.material = this.matHeroLeaves;
+    leaves.receiveShadows = false;
+    leaves.isPickable = false;
+    leaves.parent = root;
+
+    const trunk = new Mesh(`hero_tree_trunk_${idx}`, this.scene);
+    trunk.material = this.matHeroTrunk;
+    trunk.receiveShadows = true;
+    trunk.isPickable = false;
+    trunk.parent = root;
+
+    if (this.heroBranchesVertexData) this.heroBranchesVertexData.applyToMesh(branches, false);
+    if (this.heroLeavesVertexData) this.heroLeavesVertexData.applyToMesh(leaves, false);
+    if (this.heroTrunkVertexData) this.heroTrunkVertexData.applyToMesh(trunk, false);
+
+    this.activeHeroTrees.push({ branches, leaves, trunk });
+
+    // Track hero tree collider
+    this.treeColliders.push({
+      x,
+      y,
+      z,
+      trunkRadius: 0.55 * scale,
+      trunkHeight: 4.5 * scale,
+      canopyRadius: 4.8 * scale,
+      canopyBottomY: y + 2.8 * scale,
+      canopyTopY: y + 14.5 * scale,
+      isHero: true
+    });
+
+    return root;
   }
 
   /**
@@ -576,54 +820,55 @@ export class SceneryFactory {
   }
 
   /**
-   * Realistic Championship Tee Markers (Smooth lathed/rounded markers with brass trim)
+   * Realistic Championship Tee Markers: Red cubes with rounded corners,
+   * compact PGA size (~13cm), and spaced further apart (~4.8m).
    */
   public createTeeMarkers(x: number, groundY: number, z: number): Mesh {
     const root = new Mesh(`tee_markers_${x}_${z}`, this.scene);
     root.position.set(x, groundY, z);
 
-    const matLeft = new StandardMaterial('matTeeLeft', this.scene);
-    matLeft.diffuseColor = new Color3(0.11, 0.25, 0.58);
-    matLeft.specularColor = new Color3(0.32, 0.34, 0.38);
-    matLeft.specularPower = 48;
+    const matTeeRed = new StandardMaterial('matTeeRed', this.scene);
+    matTeeRed.diffuseColor = new Color3(0.82, 0.10, 0.12);
+    matTeeRed.specularColor = new Color3(0.55, 0.45, 0.45);
+    matTeeRed.specularPower = 64;
 
-    const matRight = new StandardMaterial('matTeeRight', this.scene);
-    matRight.diffuseColor = new Color3(0.68, 0.14, 0.15);
-    matRight.specularColor = new Color3(0.34, 0.32, 0.32);
-    matRight.specularPower = 48;
+    const size = 0.125;
+    const cornerRadius = 0.022;
 
-    [-1.6, 1.6].forEach((offset, i) => {
-      const markerBody = MeshBuilder.CreateCylinder(`tee_cube_${i}`, {
-        height: 0.16,
-        diameterTop: 0.19,
-        diameterBottom: 0.22,
-        tessellation: 32
+    [-2.4, 2.4].forEach((offset, i) => {
+      // 1. Core cube body
+      const cube = MeshBuilder.CreateBox(`tee_red_cube_${i}`, {
+        width: size,
+        height: size,
+        depth: size
       }, this.scene);
-      markerBody.position.set(offset, 0.08, 0);
-      markerBody.material = i === 0 ? matLeft : matRight;
-      markerBody.receiveShadows = true;
-      markerBody.parent = root;
+      cube.position.set(offset, size * 0.5 + 0.008, 0);
+      cube.material = matTeeRed;
+      cube.receiveShadows = true;
+      cube.parent = root;
 
-      const domeCap = MeshBuilder.CreateSphere(`tee_cap_${i}`, {
-        diameterX: 0.19,
-        diameterY: 0.06,
-        diameterZ: 0.19,
-        segments: 24
+      // 2. Smooth rounded corner edge caps for sleek rounded-corner cube appearance
+      const topCap = MeshBuilder.CreateSphere(`tee_red_cap_${i}`, {
+        diameterX: size * 0.98,
+        diameterY: cornerRadius * 2.2,
+        diameterZ: size * 0.98,
+        segments: 18
       }, this.scene);
-      domeCap.position.set(offset, 0.16, 0);
-      domeCap.material = i === 0 ? matLeft : matRight;
-      domeCap.receiveShadows = true;
-      domeCap.parent = root;
+      topCap.position.set(offset, size + 0.005, 0);
+      topCap.material = matTeeRed;
+      topCap.receiveShadows = true;
+      topCap.parent = root;
 
-      const brassBand = MeshBuilder.CreateTorus(`tee_band_${i}`, {
-        diameter: 0.195,
-        thickness: 0.014,
-        tessellation: 32
+      // 3. Grounding brass bezel plate at turf level
+      const brassPlate = MeshBuilder.CreateBox(`tee_brass_plate_${i}`, {
+        width: size * 1.12,
+        height: 0.016,
+        depth: size * 1.12
       }, this.scene);
-      brassBand.position.set(offset, 0.12, 0);
-      brassBand.material = this.matGoldTrim;
-      brassBand.receiveShadows = true;
-      brassBand.parent = root;
+      brassPlate.position.set(offset, 0.008, 0);
+      brassPlate.material = this.matGoldTrim;
+      brassPlate.receiveShadows = true;
+      brassPlate.parent = root;
     });
 
     return root;

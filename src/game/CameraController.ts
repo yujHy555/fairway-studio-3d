@@ -80,25 +80,18 @@ export class CameraController {
       const r = Math.max(1.5, this.camera.radius);
       const panScale = r * 0.0018;
 
-      // Pure Screen-Plane Orthogonal Basis Vectors (strictly perpendicular to the camera's view ray so RMB NEVER zooms/dollies)
+      // Pure Left/Right & Up/Down Panning (ZERO forward/backward Z-depth motion)
       const cosAlpha = Math.cos(this.camera.alpha);
       const sinAlpha = Math.sin(this.camera.alpha);
-      const cosBeta = Math.cos(this.camera.beta);
-      const sinBeta = Math.sin(this.camera.beta);
 
-      // Camera Screen Right vector in world space: (sinAlpha, 0, -cosAlpha)
+      // Horizontal RMB drag (dx) pans strictly Left & Right perpendicular to view heading
       const rightX = sinAlpha;
       const rightZ = -cosAlpha;
+      const moveX = -dx * rightX * panScale;
+      const moveZ = -dx * rightZ * panScale;
 
-      // Camera Screen Up vector in world space (orthogonal to both ViewForward and ScreenRight): (-cosBeta * cosAlpha, sinBeta, -cosBeta * sinAlpha)
-      const upX = -cosBeta * cosAlpha;
-      const upY = sinBeta;
-      const upZ = -cosBeta * sinAlpha;
-
-      // Dragging left/right pans along ScreenRight; dragging up/down pans along ScreenUp (0% motion along ViewForward)
-      const moveX = (-dx * rightX + dy * upX) * panScale;
-      const moveY = (dy * upY) * panScale;
-      const moveZ = (-dx * rightZ + dy * upZ) * panScale;
+      // Vertical RMB drag (dy) pans strictly Up & Down along Y (never forward/back across the ground)
+      const moveY = dy * panScale;
 
       this.camera.target.x = Math.max(-20, Math.min(240, this.camera.target.x + moveX));
       this.camera.target.y = Math.max(0.25, Math.min(180, this.camera.target.y + moveY));
@@ -121,7 +114,7 @@ export class CameraController {
 
     // Unrestricted, silky-smooth view angles and proportional zoom/pan
     this.camera.lowerBetaLimit = 0.05;
-    this.camera.upperBetaLimit = Math.PI / 2.06;
+    this.camera.upperBetaLimit = Math.PI / 1.76; // Allows tilting upward to view treetops, sky, and horizon
     this.camera.lowerRadiusLimit = 1.2;
     this.camera.upperRadiusLimit = 360;
     this.camera.wheelDeltaPercentage = 0.05;
@@ -151,8 +144,9 @@ export class CameraController {
       this.camera.radius = 4.4;
       this.camera.beta = Math.PI / 2.42;
     } else if (mode === 'green') {
-      this.camera.radius = 5.6;
-      this.camera.beta = Math.PI / 2.85;
+      // Intimate, broadcast-style putting camera framing the ball and aiming towards the cup
+      this.camera.radius = 3.6;
+      this.camera.beta = Math.PI / 2.58;
     } else if (mode === 'flight') {
       this.camera.radius = 9.5;
       this.camera.beta = Math.PI / 2.65;
@@ -282,7 +276,7 @@ export class CameraController {
     const camZ = this.camera.target.z + r * sinBeta * sinAlpha;
 
     // Sample a 5-point safety halo around the camera to protect the near clipping plane on slopes
-    const halo = Math.min(2.6, Math.max(0.8, r * 0.08));
+    const halo = Math.min(2.0, Math.max(0.5, r * 0.05));
     const gCenter = getWorldElevation(camX, camZ);
     const gEast = getWorldElevation(camX + halo, camZ);
     const gWest = getWorldElevation(camX - halo, camZ);
@@ -290,7 +284,8 @@ export class CameraController {
     const gSouth = getWorldElevation(camX, camZ - halo);
     const maxCamGround = Math.max(gCenter, gEast, gWest, gNorth, gSouth);
 
-    const clearance = Math.max(1.15, Math.min(3.2, r * 0.035));
+    // Streamlined clearance (~0.40m) allows comfortable low-angle upward tilt without clipping
+    const clearance = Math.max(0.40, Math.min(2.2, r * 0.025));
     let requiredCamY = maxCamGround + clearance;
 
     // Also sample intermediate points along the ray from target to camera so backing behind a ridge/lip never clips
@@ -298,8 +293,7 @@ export class CameraController {
     for (const f of rayFractions) {
       const rx = this.camera.target.x + (camX - this.camera.target.x) * f;
       const rz = this.camera.target.z + (camZ - this.camera.target.z) * f;
-      const rg = getWorldElevation(rx, rz) + 0.65;
-      // For ray height at fraction f to be >= rg: target.y + f * (camY - target.y) >= rg
+      const rg = getWorldElevation(rx, rz) + 0.35;
       const neededCamY = this.camera.target.y + (rg - this.camera.target.y) / f;
       if (neededCamY > requiredCamY) {
         requiredCamY = neededCamY;
@@ -309,19 +303,29 @@ export class CameraController {
     const currentCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
 
     if (currentCamY < requiredCamY) {
+      // If user is actively panning with RMB, lift target.y directly
+      if (this.isRmbDown) {
+        this.camera.target.y += (requiredCamY - currentCamY);
+        return;
+      }
       const dyNeeded = requiredCamY - this.camera.target.y;
-      const minBeta = 0.22; // Keep at least ~12.5 deg angle from vertical so view never flips
+      const minBeta = 0.15; // Keep at least ~8.5 deg angle from vertical
       const maxRiseFromBeta = r * Math.cos(minBeta);
 
       if (dyNeeded <= maxRiseFromBeta) {
         const cosReq = Math.max(-0.99, Math.min(0.99, dyNeeded / r));
         const safeBeta = Math.max(minBeta, Math.acos(cosReq));
+        // Gracefully elevate target.y to preserve user's upward viewing angle instead of harsh downward clamping
         if (this.camera.beta > safeBeta) {
-          this.camera.beta = safeBeta;
+          const deltaY = requiredCamY - currentCamY;
+          this.camera.target.y += deltaY * 0.75;
+          const newCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
+          if (newCamY < requiredCamY) {
+            this.camera.beta = Math.max(minBeta, Math.min(Math.PI / 1.76, safeBeta + 0.12));
+          }
         }
-        this.camera.upperBetaLimit = Math.max(minBeta, Math.min(Math.PI / 2.04, safeBeta));
+        this.camera.upperBetaLimit = Math.max(minBeta, Math.min(Math.PI / 1.76, safeBeta + 0.18));
       } else {
-        // Camera is close to a taller hill behind it: tilt up to minBeta and lift target.y so camera stays above hill
         this.camera.beta = minBeta;
         this.camera.upperBetaLimit = minBeta;
         this.camera.target.y = requiredCamY - maxRiseFromBeta;
@@ -329,9 +333,9 @@ export class CameraController {
     } else {
       // Smoothly relax upperBetaLimit when high above ground
       const dySafe = requiredCamY - this.camera.target.y;
-      let maxAllowedBeta = Math.PI / 2.04;
+      let maxAllowedBeta = Math.PI / 1.76;
       if (dySafe / r >= -0.98 && dySafe / r <= 0.98) {
-        maxAllowedBeta = Math.max(0.25, Math.min(Math.PI / 2.04, Math.acos(dySafe / r)));
+        maxAllowedBeta = Math.max(0.25, Math.min(Math.PI / 1.76, Math.acos(dySafe / r) + 0.15));
       }
       this.camera.upperBetaLimit = this.camera.upperBetaLimit * 0.85 + maxAllowedBeta * 0.15;
       if (this.camera.beta > this.camera.upperBetaLimit) {

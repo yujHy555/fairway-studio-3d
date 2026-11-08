@@ -7,9 +7,9 @@ export const GOLF_CLUBS: ClubSpec[] = [
     shortName: 'DR',
     category: 'wood',
     loftDegrees: 10.5,
-    typicalCarryMeters: 255,
-    baseBallSpeedMps: 71.5, // ~160 mph
-    baseBackspinRPM: 2500,
+    typicalCarryMeters: 272,
+    baseBallSpeedMps: 72.8, // ~163 mph: calibrated for 300m max total distance on fairway
+    baseBackspinRPM: 2450,
     spinDecayFactor: 0.030,
     maxSidespinRPM: 1200,
     sweetspotWidth: 0.12

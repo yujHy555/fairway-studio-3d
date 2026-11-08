@@ -4,6 +4,7 @@ import {
   MeshBuilder,
   StandardMaterial,
   DynamicTexture,
+  Texture,
   Material,
   Color3,
   Vector3
@@ -14,6 +15,7 @@ import { Aerodynamics } from '../physics/Aerodynamics';
 import { TerrainGrid } from '../terrain/TerrainGrid';
 import { RealisticTextures } from '../terrain/RealisticTextures';
 import { soundFx } from '../core/Audio';
+import { TreeCollider } from '../terrain/Scenery';
 
 export enum BallState {
   AIMING = 'AIMING',
@@ -48,11 +50,20 @@ export class Ball {
   // Active Pin Target for Dynamic Cup Entry
   public activePinPosition: Vector3D | null = null;
 
+  // Active Tree Colliders for realistic tree deflections
+  public treeColliders: TreeCollider[] = [];
+
   // Visual trajectory Toptracer ribbon (active only during shot)
   private tracerPoints: Vector3[] = [];
   private tracerMesh: Mesh | null = null;
   private tracerMaterial: StandardMaterial;
   private contactShadowMesh: Mesh;
+
+  // 'B' Key Ready-for-Next-Shot 3-Flash Indicator positioned just above the ball
+  private readyIndicatorMesh: Mesh;
+  private readyIndicatorMat: StandardMaterial;
+  private readyFlashActive = false;
+  private readyFlashElapsed = 0;
 
   // Callbacks
   public onStateChange?: (state: BallState, lie: SurfaceType, shotStats?: { carry: number; total: number }) => void;
@@ -63,22 +74,24 @@ export class Ball {
     this.scene = scene;
     this.terrain = terrain;
 
-    // Smooth high-tessellation regulation golf ball mesh (32 segments) with dimple normal map
+    // Smooth high-tessellation regulation golf ball mesh (32 segments) textured with golf_ball_texture_01.jpg
     this.mesh = MeshBuilder.CreateSphere('golfBall', {
       diameter: GOLF_CONSTANTS.BALL_RENDER_RADIUS * 2,
       segments: 32
     }, this.scene);
 
-    const dimpleNormal = RealisticTextures.createGolfBallDimpleNormalTexture(this.scene);
-    dimpleNormal.uScale = 3;
-    dimpleNormal.vScale = 2;
-    dimpleNormal.level = 0.55;
+    const ballTex = new Texture('/textures/golf_ball_texture_01.jpg', this.scene);
+    ballTex.anisotropicFilteringLevel = 16;
+    ballTex.uScale = 1;
+    ballTex.vScale = 1;
 
     const mat = new StandardMaterial('ballMat', this.scene);
-    mat.diffuseColor = new Color3(0.98, 0.98, 0.99);
+    mat.diffuseTexture = ballTex;
+    mat.diffuseColor = new Color3(1.0, 1.0, 1.0);
     mat.specularColor = new Color3(0.85, 0.85, 0.88);
     mat.specularPower = 112;
-    mat.bumpTexture = dimpleNormal;
+    mat.bumpTexture = ballTex;
+    mat.bumpTexture.level = 0.50;
     this.mesh.material = mat;
     this.mesh.receiveShadows = true;
 
@@ -110,16 +123,126 @@ export class Ball {
 
     // Toptracer luminous ribbon material
     this.tracerMaterial = new StandardMaterial('toptracerMat', this.scene);
-    this.tracerMaterial.diffuseColor = new Color3(1.0, 0.45, 0.05);
-    this.tracerMaterial.emissiveColor = new Color3(1.0, 0.35, 0.05);
+    this.tracerMaterial.diffuseColor = new Color3(1.0, 0.48, 0.06);
+    this.tracerMaterial.emissiveColor = new Color3(1.0, 0.38, 0.04);
     this.tracerMaterial.specularColor = new Color3(0, 0, 0);
     this.tracerMaterial.disableLighting = true;
-    this.tracerMaterial.alpha = 0.92;
+    this.tracerMaterial.alpha = 0.94;
+    this.tracerMaterial.backFaceCulling = false;
+
+    // 'B' Key Ready-for-Next-Shot 3-Flash Indicator positioned just above the stationary ball
+    this.readyIndicatorMesh = MeshBuilder.CreatePlane('cup_ballReadyIndicator', {
+      width: 0.34,
+      height: 0.34
+    }, this.scene);
+    this.readyIndicatorMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    this.readyIndicatorMesh.isPickable = false;
+    this.readyIndicatorMesh.setEnabled(false);
+
+    const indTex = new DynamicTexture('ballReadyIndicatorTex', 128, this.scene, false);
+    const indCtx = indTex.getContext() as CanvasRenderingContext2D;
+    indCtx.clearRect(0, 0, 128, 128);
+    // Outer soft glow ring
+    const rGrad = indCtx.createRadialGradient(64, 64, 10, 64, 64, 60);
+    rGrad.addColorStop(0, 'rgba(16, 255, 165, 0.35)');
+    rGrad.addColorStop(0.65, 'rgba(16, 225, 145, 0.18)');
+    rGrad.addColorStop(1, 'rgba(16, 225, 145, 0.0)');
+    indCtx.fillStyle = rGrad;
+    indCtx.fillRect(0, 0, 128, 128);
+
+    // Crisp modern downward chevron + ring pointing down at the ball
+    indCtx.strokeStyle = '#38ffae';
+    indCtx.lineWidth = 6;
+    indCtx.lineCap = 'round';
+    indCtx.lineJoin = 'round';
+    indCtx.beginPath();
+    indCtx.arc(64, 52, 26, Math.PI * 0.85, Math.PI * 2.15);
+    indCtx.stroke();
+
+    indCtx.fillStyle = '#ffffff';
+    indCtx.beginPath();
+    indCtx.moveTo(42, 64);
+    indCtx.lineTo(64, 92);
+    indCtx.lineTo(86, 64);
+    indCtx.lineTo(75, 64);
+    indCtx.lineTo(64, 78);
+    indCtx.lineTo(53, 64);
+    indCtx.closePath();
+    indCtx.fill();
+    indTex.hasAlpha = true;
+    indTex.update(false);
+
+    this.readyIndicatorMat = new StandardMaterial('ballReadyIndicatorMat', this.scene);
+    this.readyIndicatorMat.diffuseTexture = indTex;
+    this.readyIndicatorMat.opacityTexture = indTex;
+    this.readyIndicatorMat.emissiveColor = new Color3(0.22, 1.0, 0.68);
+    this.readyIndicatorMat.disableLighting = true;
+    this.readyIndicatorMat.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    this.readyIndicatorMat.backFaceCulling = false;
+    this.readyIndicatorMesh.material = this.readyIndicatorMat;
 
     // Register frame loop for flight aerodynamics & exact ground seating
     this.scene.onBeforeRenderObservable.add(() => {
       this.update(this.scene.getEngine().getDeltaTime() / 1000);
     });
+  }
+
+  /**
+   * Triggered when the player presses 'B' while the ball is settled/stationary:
+   * Flashes 3 times positioned just above the ball and then smoothly fades out.
+   */
+  public triggerReadyFlashIndicator() {
+    if (this.state !== BallState.AIMING && this.state !== BallState.AT_REST) return;
+    this.readyFlashActive = true;
+    this.readyFlashElapsed = 0;
+    this.readyIndicatorMesh.setEnabled(true);
+    this.readyIndicatorMesh.position.set(
+      this.mesh.position.x,
+      this.mesh.position.y + 0.28,
+      this.mesh.position.z
+    );
+    this.readyIndicatorMat.alpha = 1.0;
+  }
+
+  private updateReadyFlashIndicator(dt: number) {
+    if (!this.readyFlashActive) return;
+    if (this.state !== BallState.AIMING && this.state !== BallState.AT_REST) {
+      this.readyFlashActive = false;
+      this.readyIndicatorMesh.setEnabled(false);
+      return;
+    }
+
+    this.readyFlashElapsed += dt;
+    const flashDuration = 1.05; // 3 crisp flashes (0.35s each)
+    const fadeDuration = 0.40;  // Smooth fade-out after the 3rd flash
+    const totalDuration = flashDuration + fadeDuration;
+
+    if (this.readyFlashElapsed >= totalDuration) {
+      this.readyFlashActive = false;
+      this.readyIndicatorMesh.setEnabled(false);
+      return;
+    }
+
+    this.readyIndicatorMesh.position.set(
+      this.mesh.position.x,
+      this.mesh.position.y + 0.28 + Math.sin(this.readyFlashElapsed * 9.0) * 0.02,
+      this.mesh.position.z
+    );
+
+    if (this.readyFlashElapsed < flashDuration) {
+      // 3 distinct pulses using sin^2 over 3 full half-cycles
+      const phase = (this.readyFlashElapsed / flashDuration) * Math.PI * 3.0;
+      const pulse = Math.pow(Math.sin(phase), 2);
+      this.readyIndicatorMat.alpha = 0.12 + 0.88 * pulse;
+      const s = 0.90 + 0.18 * pulse;
+      this.readyIndicatorMesh.scaling.set(s, s, s);
+    } else {
+      // Smooth fade-out after the 3rd flash
+      const fadeT = (this.readyFlashElapsed - flashDuration) / fadeDuration;
+      this.readyIndicatorMat.alpha = Math.max(0, 1.0 - fadeT);
+      const s = 1.0 - fadeT * 0.15;
+      this.readyIndicatorMesh.scaling.set(s, s, s);
+    }
   }
 
   private syncContactShadow(groundY: number) {
@@ -148,6 +271,70 @@ export class Ball {
 
   public setTargetPin(pin: Vector3D | null) {
     this.activePinPosition = pin;
+  }
+
+  public setTreeColliders(colliders: TreeCollider[]) {
+    this.treeColliders = colliders;
+  }
+
+  /**
+   * Realistic tree collisions: reflects ball off solid trunks with wood impact audio,
+   * and deflects/tumbles downward through foliage canopies.
+   */
+  public checkTreeColliders(): boolean {
+    if (!this.treeColliders || this.treeColliders.length === 0) return false;
+    const bx = this.mesh.position.x;
+    const by = this.mesh.position.y;
+    const bz = this.mesh.position.z;
+    const r = GOLF_CONSTANTS.BALL_RENDER_RADIUS;
+
+    for (const tree of this.treeColliders) {
+      const dx = bx - tree.x;
+      const dz = bz - tree.z;
+      const distSq = dx * dx + dz * dz;
+      const maxDist = tree.canopyRadius + 1.2;
+      if (distSq > maxDist * maxDist) continue;
+
+      const horizDist = Math.sqrt(distSq) || 0.001;
+
+      // 1. Solid Trunk cylinder collision
+      if (by >= tree.y - 0.25 && by <= tree.y + tree.trunkHeight) {
+        const minDist = tree.trunkRadius + r;
+        if (horizDist < minDist) {
+          const nx = dx / horizDist;
+          const nz = dz / horizDist;
+          this.mesh.position.x = tree.x + nx * (minDist + 0.02);
+          this.mesh.position.z = tree.z + nz * (minDist + 0.02);
+
+          const vDotN = this.curVelocity.x * nx + this.curVelocity.z * nz;
+          if (vDotN < 0) {
+            const restitution = 0.58;
+            this.curVelocity.x = (this.curVelocity.x - (1 + restitution) * vDotN * nx) * 0.82;
+            this.curVelocity.z = (this.curVelocity.z - (1 + restitution) * vDotN * nz) * 0.82;
+            this.curVelocity.y *= 0.65;
+            soundFx.playTreeHit(Math.hypot(this.curVelocity.x, this.curVelocity.z) / 22.0);
+            return true;
+          }
+        }
+      }
+
+      // 2. Foliage Canopy / Branch deflection
+      if (by >= tree.canopyBottomY && by <= tree.canopyTopY) {
+        const t = (by - tree.canopyBottomY) / (tree.canopyTopY - tree.canopyBottomY);
+        const radiusAtHeight = tree.canopyRadius * (tree.isHero ? Math.sin(t * Math.PI) * 0.95 + 0.15 : (1.0 - t * 0.72));
+        if (horizDist < radiusAtHeight) {
+          const speed = Math.hypot(this.curVelocity.x, this.curVelocity.y, this.curVelocity.z);
+          if (speed > 1.2) {
+            this.curVelocity.x *= 0.38 + (Math.random() - 0.5) * 0.15;
+            this.curVelocity.z *= 0.38 + (Math.random() - 0.5) * 0.15;
+            this.curVelocity.y = Math.min(-1.8, this.curVelocity.y * 0.3 - 2.2);
+            soundFx.playBranchDeflection();
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -210,7 +397,7 @@ export class Ball {
       this.curSpin = { x: 0, y: 0, z: 0 };
 
       this.addTracerPoint(this.mesh.position.clone());
-      soundFx.playClubImpact(shot.club.category, shot.powerPercent);
+      soundFx.playClubImpact('putter', shot.powerPercent, false);
       this.onStateChange?.(this.state, this.currentLie);
       return;
     }
@@ -222,14 +409,17 @@ export class Ball {
 
     this.addTracerPoint(this.mesh.position.clone());
 
+    const isDriver = shot.club.id === 'driver';
     soundFx.playSwingWhoosh(shot.powerPercent);
-    soundFx.playClubImpact(shot.club.category, shot.powerPercent);
+    soundFx.playClubImpact(shot.club.category, shot.powerPercent, isDriver);
 
     this.onStateChange?.(this.state, this.currentLie);
   }
 
   private update(dt: number) {
     if (dt <= 0 || dt > 0.1) dt = 0.016;
+
+    this.updateReadyFlashIndicator(dt);
 
     // Keep resting / aiming ball strictly seated on exact triangle surface even if terrain is edited
     if (this.state === BallState.AIMING || this.state === BallState.AT_REST) {
@@ -265,6 +455,9 @@ export class Ball {
         this.curSpin = step.nextSpin;
         this.mesh.position.set(step.nextPos.x, step.nextPos.y, step.nextPos.z);
 
+        // Check tree trunk/canopy collisions in flight
+        this.checkTreeColliders();
+
         // Visual spin rotation
         this.mesh.rotation.x += 18.0 * subDt;
 
@@ -296,19 +489,34 @@ export class Ball {
       const props = SURFACE_PROPERTIES[surface];
 
       const normal = this.terrain.getNormal(this.mesh.position.x, this.mesh.position.z);
-      const slopeForceX = -normal.x * 9.81;
-      const slopeForceZ = -normal.z * 9.81;
+      // Note: normal.x = (hL - hR) / (2 * eps) = -dh/dx already points DOWNHILL!
+      // Tangential downhill gravitational acceleration is +g * normal.x * normal.y
+      const slopeSin = Math.hypot(normal.x, normal.z);
+      const gravityScale = 9.81 * 1.18; // Authentic 5/7 sphere rolling + turf slope responsiveness
+      const slopeAccelX = normal.x * normal.y * gravityScale;
+      const slopeAccelZ = normal.z * normal.y * gravityScale;
 
-      const speed = Math.sqrt(this.curVelocity.x * this.curVelocity.x + this.curVelocity.z * this.curVelocity.z);
-      const decel = (props.rollingResistance * 9.81 + 0.14) * dt;
-      const newSpeed = Math.max(0, speed - decel);
-      const speedFactor = speed > 0.001 ? newSpeed / speed : 0;
+      // 1. Accelerate ball along the downhill slope vector first (so gravity is never zeroed out when speed is low)
+      this.curVelocity.x += slopeAccelX * dt;
+      this.curVelocity.z += slopeAccelZ * dt;
 
-      this.curVelocity.x = (this.curVelocity.x + slopeForceX * dt) * speedFactor;
-      this.curVelocity.z = (this.curVelocity.z + slopeForceZ * dt) * speedFactor;
+      // 2. Apply turf rolling resistance opposing current velocity, relieved on slopes so balls roll down banks into bunkers
+      const speedAfterGravity = Math.hypot(this.curVelocity.x, this.curVelocity.z);
+      const isSteepBunkerWall = surface === SurfaceType.BUNKER && slopeSin > 0.14;
+      const baseResistance = isSteepBunkerWall ? 0.12 : props.rollingResistance;
+      const slopeRelief = Math.max(0.16, 1.0 - slopeSin * 2.8);
+      const decel = (baseResistance * 9.81 * slopeRelief + 0.06 * slopeRelief) * dt;
+      const newSpeed = Math.max(0, speedAfterGravity - decel);
+      const speedFactor = speedAfterGravity > 0.0001 ? newSpeed / speedAfterGravity : 0;
+
+      this.curVelocity.x *= speedFactor;
+      this.curVelocity.z *= speedFactor;
 
       this.mesh.position.x += this.curVelocity.x * dt;
       this.mesh.position.z += this.curVelocity.z * dt;
+
+      // Check tree collisions while rolling
+      this.checkTreeColliders();
 
       // Compute exact triangle elevation AFTER moving x and z so ball never penetrates or floats on slopes!
       const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
@@ -332,7 +540,7 @@ export class Ball {
         const distToCup = Math.sqrt(pinDx * pinDx + pinDz * pinDz);
 
         if (distToCup <= GOLF_CONSTANTS.CUP_RADIUS * 1.4) {
-          if (speed <= 4.8) {
+          if (newSpeed <= 4.8) {
             this.state = BallState.IN_HOLE;
             this.curVelocity = { x: 0, y: 0, z: 0 };
             this.mesh.position.set(
@@ -345,7 +553,7 @@ export class Ball {
             this.onHoleComplete?.();
             this.onStateChange?.(this.state, SurfaceType.CUP_BOTTOM, { carry: this.carryDistance, total: this.totalDistance });
             return;
-          } else if (speed < 6.8) {
+          } else if (newSpeed < 6.8) {
             this.curVelocity.x *= -0.35;
             this.curVelocity.z *= -0.35;
           }
@@ -375,10 +583,11 @@ export class Ball {
         return;
       }
 
-      // 4. Decisive settling
-      if (newSpeed < 0.18) {
+      // 4. Decisive settling — never allow settling while on a steep slope/fringe bank (> 0.075 rad) so ball rolls into bunker
+      const canSettleOnSlope = surface === SurfaceType.BUNKER ? slopeSin < 0.16 : slopeSin < 0.075;
+      if (newSpeed < 0.15 && canSettleOnSlope) {
         this.atRestCounter += dt;
-        if (this.atRestCounter > 0.10) {
+        if (this.atRestCounter > 0.12) {
           this.state = BallState.AT_REST;
           this.curVelocity = { x: 0, y: 0, z: 0 };
           this.clearTracer();
@@ -446,20 +655,49 @@ export class Ball {
     const vTangX = this.curVelocity.x - vNormX;
     const vTangZ = this.curVelocity.z - vNormZ;
 
+    // Direct bunker sand landing: soft sand deadens impact immediately, stopping with virtually zero bounce
+    if (surface === SurfaceType.BUNKER) {
+      this.state = BallState.ROLLING;
+      this.curVelocity.x = vTangX * 0.08;
+      this.curVelocity.y = 0;
+      this.curVelocity.z = vTangZ * 0.08;
+      this.curSpin = { x: 0, y: 0, z: 0 };
+      this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
+      return;
+    }
+
     const bounceVy = -vNormY * props.restitution;
 
     // Record exact ground impact point in the Toptracer ribbon so bounce cusps are clearly visible
     this.tracerPoints.push(this.mesh.position.clone());
 
-    if (Math.abs(bounceVy) > 0.62 && surface !== SurfaceType.BUNKER) {
-      this.curVelocity.x = vTangX * (1 - props.friction * 0.38) - vNormX * props.restitution;
-      this.curVelocity.y = bounceVy;
-      this.curVelocity.z = vTangZ * (1 - props.friction * 0.38) - vNormZ * props.restitution;
+    let effTangX = vTangX;
+    let effTangZ = vTangZ;
+    let effBounceVy = bounceVy;
+
+    // Greens & Fringe: approach shot backspin bite / check-up effect
+    if (surface === SurfaceType.GREEN || surface === SurfaceType.FRINGE) {
+      const backspinRpm = (this.curSpin.x * 60) / (2 * Math.PI);
+      if (backspinRpm > 1200) {
+        const bite = Math.min(0.85, backspinRpm / 7000);
+        effTangX *= (1.0 - bite * 0.80);
+        effTangZ *= (1.0 - bite * 0.80);
+        effBounceVy *= 0.55;
+        this.curSpin.x *= 0.15;
+      }
+    }
+
+    if (Math.abs(effBounceVy) > 0.52) {
+      this.curVelocity.x = effTangX * (1 - props.friction * 0.35) - vNormX * props.restitution;
+      this.curVelocity.y = effBounceVy;
+      this.curVelocity.z = effTangZ * (1 - props.friction * 0.35) - vNormZ * props.restitution;
     } else {
       this.state = BallState.ROLLING;
       this.curVelocity.y = 0;
-      this.curVelocity.x = vTangX * (1 - props.friction * 0.35);
-      this.curVelocity.z = vTangZ * (1 - props.friction * 0.35);
+      const slopeSin = Math.hypot(normal.x, normal.z);
+      const frictionLoss = props.friction * 0.32;
+      this.curVelocity.x = effTangX * (1 - frictionLoss) + normal.x * normal.y * 0.45;
+      this.curVelocity.z = effTangZ * (1 - frictionLoss) + normal.z * normal.y * 0.45;
       this.onStateChange?.(this.state, this.currentLie, { carry: this.carryDistance, total: this.totalDistance });
     }
   }
@@ -488,21 +726,49 @@ export class Ball {
     return false;
   }
 
+  /**
+   * Updates the orange Toptracer flight ribbon on every single rendered frame
+   * with the live tip continuously anchored to the exact ball center (zero 0.45m discrete step/push jerk).
+   */
   private addTracerPoint(pt: Vector3) {
-    if (this.tracerPoints.length > 0) {
-      const last = this.tracerPoints[this.tracerPoints.length - 1];
-      if (Vector3.Distance(last, pt) < 0.45) return;
+    if (this.tracerPoints.length === 0) {
+      this.tracerPoints.push(pt.clone());
+      return;
     }
-    this.tracerPoints.push(pt.clone());
 
-    if (this.tracerPoints.length >= 2) {
+    const lastAnchor = this.tracerPoints[this.tracerPoints.length - 1];
+    const distFromLast = Vector3.Distance(lastAnchor, pt);
+
+    // Commit a permanent trail anchor every 0.32m, while ALWAYS extending the live tip smoothly to `pt` every frame
+    if (distFromLast >= 0.32) {
+      this.tracerPoints.push(pt.clone());
+    }
+
+    // Build continuous frame-accurate path whose tip is 100% locked to `pt`
+    const livePath: Vector3[] = [];
+    for (let i = 0; i < this.tracerPoints.length; i++) {
+      livePath.push(this.tracerPoints[i]);
+    }
+
+    const tipDist = Vector3.Distance(livePath[livePath.length - 1], pt);
+    if (tipDist > 0.005) {
+      if (tipDist < 0.10 && livePath.length >= 2) {
+        // Move the final point smoothly instead of inserting a tiny segment that twists Frenet frames
+        livePath[livePath.length - 1] = pt.clone();
+      } else {
+        livePath.push(pt.clone());
+      }
+    }
+
+    if (livePath.length >= 2) {
       if (this.tracerMesh) {
         this.tracerMesh.dispose();
       }
       this.tracerMesh = MeshBuilder.CreateTube('ballToptracer', {
-        path: this.tracerPoints,
-        radius: 0.065,
-        tessellation: 16,
+        path: livePath,
+        radius: 0.058,
+        tessellation: 14,
+        cap: Mesh.CAP_ALL,
         updatable: false
       }, this.scene);
       this.tracerMesh.material = this.tracerMaterial;

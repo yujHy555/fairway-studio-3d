@@ -26,6 +26,7 @@ export interface UIEventCallbacks {
   onAimAdjust: (deltaDeg: number) => void;
   onTargetDistanceAdjust?: (deltaMeters: number) => void;
   onCameraModeToggle: () => void;
+  onFocusBall?: () => void;
   onResetShot: () => void;
 }
 
@@ -268,6 +269,7 @@ export class UIController {
             <div class="hud-aim-controls">
               <button id="btn-aim-left" class="btn btn-sm">◀ Aim Left [← / A]</button>
               <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
+              <button id="btn-focus-ball" class="btn btn-sm">⛳ Ball [B]</button>
               <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
               <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
             </div>
@@ -750,6 +752,10 @@ export class UIController {
       this.callbacks.onCameraModeToggle();
     });
 
+    document.getElementById('btn-focus-ball')?.addEventListener('click', () => {
+      this.callbacks.onFocusBall?.();
+    });
+
     document.getElementById('btn-reset-shot')!.addEventListener('click', () => {
       this.callbacks.onResetShot();
     });
@@ -765,6 +771,8 @@ export class UIController {
         this.callbacks.onAimAdjust(-1.5);
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         this.callbacks.onAimAdjust(1.5);
+      } else if (e.code === 'KeyB') {
+        this.callbacks.onFocusBall?.();
       } else if (e.code === 'KeyC') {
         this.callbacks.onCameraModeToggle();
       } else if (e.code === 'KeyR') {

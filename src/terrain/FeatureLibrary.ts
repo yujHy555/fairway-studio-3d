@@ -205,6 +205,17 @@ export const PRESET_FEATURES: PresetFeature[] = [
     sceneryType: 'pine'
   },
   {
+    id: 'scenery_hero_tree_01',
+    name: 'Hero Specimen Tree 01',
+    category: 'scenery',
+    description: 'High-detail Poly Haven specimen tree (hero_tree_01_01.glb) — use sparingly',
+    icon: '🌳',
+    surfaceType: SurfaceType.ROUGH,
+    width: 7,
+    length: 7,
+    sceneryType: 'hero_tree'
+  },
+  {
     id: 'scenery_rocks',
     name: 'Granite Boulder Outcrop',
     category: 'scenery',
