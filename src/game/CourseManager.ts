@@ -23,7 +23,7 @@ export class CourseManager {
 
     this.courseData = {
       id: 'default_course',
-      name: 'Pine Valley Low-Poly Links',
+      name: 'Pine Valley Championship Links',
       author: 'Architect',
       gridWidth: terrain.width,
       gridLength: terrain.length,

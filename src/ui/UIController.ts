@@ -71,7 +71,7 @@ export class UIController {
           <div class="logo">
             <span class="logo-ball">⛳</span>
             <span class="logo-text">FAIRWAY<strong>STUDIO</strong></span>
-            <span class="badge">3D LOW-POLY</span>
+            <span class="badge">PGA TOUR EDITION</span>
           </div>
 
           <div class="hole-selector" id="hole-tabs">
@@ -110,7 +110,11 @@ export class UIController {
       <aside id="designer-panel" class="hidden">
         <div class="panel-header">
           <h3>Course Architect</h3>
-          <span class="scale-info">Scale: 1m x 1m Grid</span>
+          <span class="scale-info">1m x 1m Grid</span>
+        </div>
+        <div class="designer-controls-hint" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 6px 10px; margin: 0 12px 10px 12px; font-size: 11px; color: #a7f3d0; line-height: 1.4;">
+          <strong>Left-Click Drag:</strong> Orbit View &nbsp;|&nbsp; <strong>Right-Click:</strong> Place / Sculpt<br/>
+          <strong>Middle-Click / WASD:</strong> Pan &nbsp;|&nbsp; <strong>Scroll:</strong> Zoom
         </div>
 
         <div class="panel-section">
@@ -260,14 +264,8 @@ export class UIController {
             <div class="hud-aim-controls">
               <button id="btn-aim-left" class="btn btn-sm">◀ Aim Left [← / A]</button>
               <button id="btn-aim-right" class="btn btn-sm">Aim Right [→ / D] ▶</button>
-              <button id="btn-target-closer" class="btn btn-sm">🎯 Distance - [↓]</button>
-              <button id="btn-target-farther" class="btn btn-sm">Distance + [↑]</button>
               <button id="btn-camera-view" class="btn btn-sm">📷 View [C]</button>
               <button id="btn-reset-shot" class="btn btn-sm">🔄 Reset [R]</button>
-            </div>
-            <div class="hud-aim-readout" id="hud-aim-readout">
-              <span id="hud-aim-target-dist">TARGET: 220m (241 yds)</span> | 
-              <span id="hud-aim-elev">ELEV: +0.0m</span>
             </div>
           </div>
         </div>
@@ -307,8 +305,8 @@ export class UIController {
       ? PRESET_FEATURES
       : PRESET_FEATURES.filter(p => p.category === category);
 
-    grid.innerHTML = filtered.map(p => `
-      <div class="preset-card" data-preset-id="${p.id}">
+    grid.innerHTML = filtered.map((p, idx) => `
+      <div class="preset-card ${idx === 0 ? 'selected' : ''}" data-preset-id="${p.id}">
         <span class="preset-icon">${p.icon}</span>
         <div class="preset-info">
           <div class="preset-title">${p.name}</div>
@@ -316,6 +314,10 @@ export class UIController {
         </div>
       </div>
     `).join('');
+
+    if (filtered.length > 0) {
+      this.callbacks.onPresetSelect(filtered[0]);
+    }
 
     // Attach card click handlers
     grid.querySelectorAll('.preset-card').forEach(card => {
@@ -745,6 +747,7 @@ export class UIController {
 
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
+      if (this.currentMode !== 'play') return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (!this.isSwingEnabled) return;
@@ -753,10 +756,6 @@ export class UIController {
         this.callbacks.onAimAdjust(-1.5);
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         this.callbacks.onAimAdjust(1.5);
-      } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
-        this.callbacks.onTargetDistanceAdjust?.(10);
-      } else if (e.code === 'KeyS' || e.code === 'ArrowDown') {
-        this.callbacks.onTargetDistanceAdjust?.(-10);
       } else if (e.code === 'KeyC') {
         this.callbacks.onCameraModeToggle();
       } else if (e.code === 'KeyR') {

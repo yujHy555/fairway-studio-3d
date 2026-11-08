@@ -3,57 +3,74 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
-  Color3
+  Color3,
+  DynamicTexture,
+  Texture
 } from '@babylonjs/core';
+import { RealisticTextures } from './RealisticTextures';
 
 /**
- * Procedural Backdrop Mountain & Valley Generator
- * Generates an expansive scenic landscape (1000m x 1000m) surrounding the golf course
- * using multi-octave Fractal Brownian Motion (FBM) with slope-aware biome texturing.
+ * Realistic Surrounding Valley & Mountain Backdrop
+ * Generates a smooth, continuous landscape (1200m x 1200m) framing the playable golf course
+ * with seamless tiled turf/forest textures and zero overlap inside the playable course grid.
  */
 export class ProceduralBackdrop {
   private scene: Scene;
   public backdropMesh: Mesh | null = null;
 
-  // Outer bounds
-  private readonly worldSize = 900; // 900m x 900m
-  private readonly resolution = 90; // 90x90 quads (10m per quad for optimal performance)
+  private readonly worldSize = 1100;
+  private readonly resolution = 120;
 
-  // Golf course playable cutout bounds
-  private readonly holeMinX = 70;
-  private readonly holeMaxX = 150;
-  private readonly holeMinZ = 20;
-  private readonly holeMaxZ = 400;
+  // Full playable course bounds (0..220 x 0..460) so backdrop never pokes through bunkers or ponds
+  private readonly courseMinX = 0;
+  private readonly courseMaxX = 220;
+  private readonly courseMinZ = 0;
+  private readonly courseMaxZ = 460;
 
   constructor(scene: Scene) {
     this.scene = scene;
     this.buildBackdrop();
   }
 
-  /**
-   * Multi-octave Perlin / Simplex pseudo-noise function
-   */
-  private noise(x: number, z: number): number {
-    return Math.sin(x * 0.015) * Math.cos(z * 0.015) +
-           0.5 * Math.sin(x * 0.035 + 1.7) * Math.cos(z * 0.035 + 2.3) +
-           0.25 * Math.sin(x * 0.08 + 4.1) * Math.sin(z * 0.08 + 0.9);
-  }
-
   private fbm(x: number, z: number): number {
     let total = 0;
     let amplitude = 1.0;
-    let frequency = 0.006;
+    let frequency = 0.0045;
     let maxValue = 0;
 
     for (let i = 0; i < 4; i++) {
-      total += (Math.sin(x * frequency) * Math.cos(z * frequency) +
-                Math.cos(x * frequency * 0.7 + 1.2) * Math.sin(z * frequency * 0.8)) * amplitude;
+      total +=
+        (Math.sin(x * frequency) * Math.cos(z * frequency) +
+          Math.cos(x * frequency * 0.72 + 1.4) * Math.sin(z * frequency * 0.85)) *
+        amplitude;
       maxValue += amplitude * 2;
       amplitude *= 0.5;
-      frequency *= 2.1;
+      frequency *= 2.05;
     }
 
-    return (total / maxValue) * 35.0; // up to 35m mountain peaks
+    return (total / maxValue) * 42.0;
+  }
+
+  private sampleHeight(wx: number, wz: number): number {
+    const dx = Math.max(0, Math.max(this.courseMinX - wx, wx - this.courseMaxX));
+    const dz = Math.max(0, Math.max(this.courseMinZ - wz, wz - this.courseMaxZ));
+    const distFromCourse = Math.sqrt(dx * dx + dz * dz);
+
+    // Keep strictly below -8.0m anywhere inside or within 4m of the playable course
+    // so deep bunkers and water hazards never intersect the backdrop!
+    if (distFromCourse < 4.0) {
+      return -8.0;
+    }
+
+    // Smooth blend from course rim (y = 2.2m at edge) up into surrounding hills
+    const t = Math.min(1.0, Math.max(0, (distFromCourse - 4.0) / 110.0));
+    const smoothT = t * t * (3.0 - 2.0 * t);
+
+    const rimMatch = Math.min(1.0, (distFromCourse - 4.0) / 16.0);
+    const baseHeight = -8.0 * (1.0 - rimMatch) + 1.8 * rimMatch;
+    const rawHills = Math.max(0, this.fbm(wx, wz) + 14.0);
+
+    return baseHeight + rawHills * smoothT;
   }
 
   public buildBackdrop() {
@@ -64,160 +81,116 @@ export class ProceduralBackdrop {
     const cols = this.resolution + 1;
     const rows = this.resolution + 1;
     const step = this.worldSize / this.resolution;
-    const originOffset = -this.worldSize * 0.5 + 110; // Center around hole at X=110, Z=200
-    const originOffsetZ = -this.worldSize * 0.5 + 200;
+    const originX = 110 - this.worldSize * 0.5;
+    const originZ = 230 - this.worldSize * 0.5;
 
-    const quadCount = this.resolution * this.resolution;
-    const vertexCount = quadCount * 6; // low-poly faceted triangles
+    const totalVerts = cols * rows;
+    const positions = new Float32Array(totalVerts * 3);
+    const normals = new Float32Array(totalVerts * 3);
+    const uvs = new Float32Array(totalVerts * 2);
+    const colors = new Float32Array(totalVerts * 4);
+    const indices: number[] = [];
 
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-    const colors = new Float32Array(vertexCount * 4);
-    const indices = new Uint32Array(vertexCount);
+    for (let r = 0; r < rows; r++) {
+      const wz = originZ + r * step;
+      for (let c = 0; c < cols; c++) {
+        const wx = originX + c * step;
+        const vIdx = r * cols + c;
+        const wy = this.sampleHeight(wx, wz);
 
-    let vIdx = 0;
-    let pIdx = 0;
-    let cIdx = 0;
+        positions[vIdx * 3] = wx;
+        positions[vIdx * 3 + 1] = wy;
+        positions[vIdx * 3 + 2] = wz;
 
-    // Helper to compute mountain height with bowl cutout for the golf course
-    const sampleHeight = (wx: number, wz: number): number => {
-      // Distance from center of golf hole
-      const dx = Math.max(0, Math.max(this.holeMinX - wx, wx - this.holeMaxX));
-      const dz = Math.max(0, Math.max(this.holeMinZ - wz, wz - this.holeMaxZ));
-      const distFromCourse = Math.sqrt(dx * dx + dz * dz);
+        uvs[vIdx * 2] = (wx - originX) / 40.0;
+        uvs[vIdx * 2 + 1] = (wz - originZ) / 40.0;
 
-      // Smooth step transition: 0m height near course, rises into dramatic mountains at 40m+ distance
-      const transitionFactor = Math.min(1.0, Math.max(0, (distFromCourse - 25.0) / 90.0));
-      const easeFactor = transitionFactor * transitionFactor * (3 - 2 * transitionFactor);
+        // Smooth elevation & slope-aware natural coloring
+        const eps = 3.0;
+        const hL = this.sampleHeight(wx - eps, wz);
+        const hR = this.sampleHeight(wx + eps, wz);
+        const hD = this.sampleHeight(wx, wz - eps);
+        const hU = this.sampleHeight(wx, wz + eps);
+        let nx = (hL - hR) / (2 * eps);
+        let ny = 1.0;
+        let nz = (hD - hU) / (2 * eps);
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+        nx /= len;
+        ny /= len;
+        nz /= len;
 
-      if (easeFactor <= 0.001) return -0.2; // slightly below golf ground to prevent z-fighting
+        normals[vIdx * 3] = nx;
+        normals[vIdx * 3 + 1] = ny;
+        normals[vIdx * 3 + 2] = nz;
 
-      const rawMountain = Math.max(0, this.fbm(wx, wz) + 10.0);
-      return rawMountain * easeFactor;
-    };
+        const slope = 1.0 - ny;
+        let rC = 0.78, gC = 0.88, bC = 0.74;
+        if (slope > 0.28) {
+          // Exposed mountain granite outcroppings
+          const rockBlend = Math.min(1.0, (slope - 0.28) * 3.5);
+          rC = rC * (1 - rockBlend) + 0.65 * rockBlend;
+          gC = gC * (1 - rockBlend) + 0.64 * rockBlend;
+          bC = bC * (1 - rockBlend) + 0.62 * rockBlend;
+        }
+
+        colors[vIdx * 4] = rC;
+        colors[vIdx * 4 + 1] = gC;
+        colors[vIdx * 4 + 2] = bC;
+        colors[vIdx * 4 + 3] = 1.0;
+      }
+    }
 
     for (let r = 0; r < this.resolution; r++) {
       for (let c = 0; c < this.resolution; c++) {
-        const x0 = originOffset + c * step;
-        const x1 = originOffset + (c + 1) * step;
-        const z0 = originOffsetZ + r * step;
-        const z1 = originOffsetZ + (r + 1) * step;
+        const x0 = originX + c * step;
+        const x1 = originX + (c + 1) * step;
+        const z0 = originZ + r * step;
+        const z1 = originZ + (r + 1) * step;
 
-        // Skip quads that are strictly inside the playable course
-        if (x0 >= this.holeMinX + 5 && x1 <= this.holeMaxX - 5 &&
-            z0 >= this.holeMinZ + 5 && z1 <= this.holeMaxZ - 5) {
+        // Completely omit quads inside the playable course rectangle so there is zero overlap
+        if (
+          x0 >= this.courseMinX + 4 &&
+          x1 <= this.courseMaxX - 4 &&
+          z0 >= this.courseMinZ + 4 &&
+          z1 <= this.courseMaxZ - 4
+        ) {
           continue;
         }
 
-        const y00 = sampleHeight(x0, z0);
-        const y10 = sampleHeight(x1, z0);
-        const y01 = sampleHeight(x0, z1);
-        const y11 = sampleHeight(x1, z1);
+        const idx00 = r * cols + c;
+        const idx10 = r * cols + (c + 1);
+        const idx01 = (r + 1) * cols + c;
+        const idx11 = (r + 1) * cols + (c + 1);
 
-        // Triangle 1
-        const ax1 = x0 - x0, ay1 = y01 - y00, az1 = z1 - z0;
-        const bx1 = x1 - x0, by1 = y10 - y00, bz1 = z0 - z0;
-        let nx1 = ay1 * bz1 - az1 * by1;
-        let ny1 = az1 * bx1 - ax1 * bz1;
-        let nz1 = ax1 * by1 - ay1 * bx1;
-        const l1 = Math.sqrt(nx1 * nx1 + ny1 * ny1 + nz1 * nz1) || 1;
-        nx1 /= l1; ny1 /= l1; nz1 /= l1;
-
-        // Tri 1 Slope (dot with up vector)
-        const slope1 = 1.0 - ny1; // 0 = flat, 1 = vertical cliff
-
-        const t1 = [
-          { x: x0, y: y00, z: z0 },
-          { x: x0, y: y01, z: z1 },
-          { x: x1, y: y10, z: z0 }
-        ];
-
-        for (const pt of t1) {
-          positions[pIdx] = pt.x;
-          positions[pIdx + 1] = pt.y;
-          positions[pIdx + 2] = pt.z;
-
-          normals[pIdx] = nx1;
-          normals[pIdx + 1] = ny1;
-          normals[pIdx + 2] = nz1;
-
-          // Biome coloring: Flat = alpine pine green, Steep = rocky granite, High = snow frost
-          let rC = 0.18, gC = 0.38, bC = 0.16; // default forest green
-          if (slope1 > 0.32) {
-            // Granite rock cliff
-            rC = 0.44; gC = 0.45; bC = 0.48;
-          } else if (pt.y > 24.0) {
-            // Snow peak
-            rC = 0.88; gC = 0.92; bC = 0.95;
-          }
-
-          colors[cIdx] = rC;
-          colors[cIdx + 1] = gC;
-          colors[cIdx + 2] = bC;
-          colors[cIdx + 3] = 1.0;
-
-          indices[vIdx] = vIdx;
-          vIdx++;
-          pIdx += 3;
-          cIdx += 4;
-        }
-
-        // Triangle 2
-        const ax2 = x0 - x1, ay2 = y01 - y10, az2 = z1 - z0;
-        const bx2 = x1 - x1, by2 = y11 - y10, bz2 = z1 - z0;
-        let nx2 = ay2 * bz2 - az2 * by2;
-        let ny2 = az2 * bx2 - ax2 * bz2;
-        let nz2 = ax2 * by2 - ay2 * bx2;
-        const l2 = Math.sqrt(nx2 * nx2 + ny2 * ny2 + nz2 * nz2) || 1;
-        nx2 /= l2; ny2 /= l2; nz2 /= l2;
-
-        const slope2 = 1.0 - ny2;
-
-        const t2 = [
-          { x: x1, y: y10, z: z0 },
-          { x: x0, y: y01, z: z1 },
-          { x: x1, y: y11, z: z1 }
-        ];
-
-        for (const pt of t2) {
-          positions[pIdx] = pt.x;
-          positions[pIdx + 1] = pt.y;
-          positions[pIdx + 2] = pt.z;
-
-          normals[pIdx] = nx2;
-          normals[pIdx + 1] = ny2;
-          normals[pIdx + 2] = nz2;
-
-          let rC = 0.18, gC = 0.38, bC = 0.16;
-          if (slope2 > 0.32) {
-            rC = 0.44; gC = 0.45; bC = 0.48;
-          } else if (pt.y > 24.0) {
-            rC = 0.88; gC = 0.92; bC = 0.95;
-          }
-
-          colors[cIdx] = rC;
-          colors[cIdx + 1] = gC;
-          colors[cIdx + 2] = bC;
-          colors[cIdx + 3] = 1.0;
-
-          indices[vIdx] = vIdx;
-          vIdx++;
-          pIdx += 3;
-          cIdx += 4;
-        }
+        indices.push(idx00, idx01, idx10);
+        indices.push(idx10, idx01, idx11);
       }
     }
 
     const mesh = new Mesh('ProceduralBackdropMesh', this.scene);
+    mesh.isPickable = false;
+    mesh.receiveShadows = true;
+
     const vertexData = new VertexData();
-    vertexData.positions = positions.slice(0, pIdx);
-    vertexData.normals = normals.slice(0, pIdx);
-    vertexData.colors = colors.slice(0, cIdx);
-    vertexData.indices = indices.slice(0, vIdx);
+    vertexData.positions = positions;
+    vertexData.normals = normals;
+    vertexData.uvs = uvs;
+    vertexData.colors = colors;
+    vertexData.indices = new Uint32Array(indices);
     vertexData.applyToMesh(mesh, false);
 
+    // Seamless tiled rough grass texture on backdrop hills
+    const roughCanvas = RealisticTextures.createSeamlessSurfacePattern('rough');
+    const backdropTex = new DynamicTexture('backdropGrassTex', 256, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
+    backdropTex.wrapU = Texture.WRAP_ADDRESSMODE;
+    backdropTex.wrapV = Texture.WRAP_ADDRESSMODE;
+    const ctx = backdropTex.getContext() as CanvasRenderingContext2D;
+    ctx.drawImage(roughCanvas, 0, 0);
+    backdropTex.update(true);
+
     const mat = new StandardMaterial('backdropMat', this.scene);
-    mat.specularColor = new Color3(0.04, 0.04, 0.04);
+    mat.diffuseTexture = backdropTex;
+    mat.specularColor = new Color3(0.03, 0.03, 0.03);
     mat.backFaceCulling = false;
     mesh.material = mat;
 
