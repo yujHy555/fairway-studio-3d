@@ -27,7 +27,7 @@ export class AimSystem {
   public isVisible: boolean = true;
 
   private arrowMesh: Mesh;
-  private arrowMat: PBRMaterial;
+  private arrowMat: StandardMaterial | PBRMaterial;
   private isArrowActive: boolean = true;
   private pulseTime: number = 0;
 
@@ -46,17 +46,13 @@ export class AimSystem {
     // Build the extruded 3D chevron arrow geometry (matching reference image)
     this.buildChevronGeometry();
 
-    // High-gloss Reflective Plastic Broadcast Material
-    this.arrowMat = new PBRMaterial('modernAimChevronMat', this.scene);
-    this.arrowMat.albedoColor = Color3.FromHexString('#FFB800'); // Vivid golden amber
-    this.arrowMat.roughness = 0.08;                              // Ultra glossy reflective plastic
-    this.arrowMat.metallic = 0.0;                               // Non-metallic dielectric
-    this.arrowMat.clearCoat.isEnabled = true;                   // Gloss clearcoat lacquer
-    this.arrowMat.clearCoat.intensity = 1.0;
-    this.arrowMat.clearCoat.roughness = 0.04;
-    this.arrowMat.environmentIntensity = 1.35;
-    this.arrowMat.emissiveColor = new Color3(0.08, 0.05, 0.01);
-    this.arrowMat.backFaceCulling = false;
+    // Non-reflective, non-specular tournament aim chevron material
+    const mat = new StandardMaterial('modernAimChevronMat', this.scene);
+    mat.diffuseColor = Color3.FromHexString('#FFB800'); // Clean tournament golden amber
+    mat.specularColor = new Color3(0, 0, 0);            // Strictly non-reflective, zero specular shine
+    mat.emissiveColor = Color3.FromHexString('#785200'); // Balanced warm broadcast visibility
+    mat.backFaceCulling = false;
+    this.arrowMat = mat;
     this.arrowMesh.material = this.arrowMat;
 
     // Register with ShadowGenerator so it casts a real-time soft shadow onto the turf below
@@ -193,13 +189,13 @@ export class AimSystem {
 
     this.targetPosition.set(targetX, groundY, targetZ);
 
-    // Position 3D golden chevron 1.35m ahead of the ball, floating 0.60m above turf (lifted 0.5m higher per user request)
+    // Position 3D golden chevron 1.35m ahead of the ball, floating closely above turf (0.065m) per user request
     const arrowDist = 1.35;
     const arrowX = ballPos.x + Math.sin(rad) * arrowDist;
     const arrowZ = ballPos.z + Math.cos(rad) * arrowDist;
     const arrowGroundY = this.terrain.getElevation(arrowX, arrowZ);
 
-    this.arrowMesh.position.set(arrowX, arrowGroundY + 0.60, arrowZ);
+    this.arrowMesh.position.set(arrowX, arrowGroundY + 0.065, arrowZ);
     this.arrowMesh.rotation.y = rad;
 
     // Subtle gentle broadcast breathing pulse

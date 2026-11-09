@@ -84,6 +84,11 @@ export class SceneryFactory {
   private matCliff: StandardMaterial;
   private activeCliffs: Mesh[] = [];
 
+  // Master geometry parsed directly from /models/rubber_duck_01_01.glb (1 primitive: rubber duck tee marker)
+  private duckVertexData: VertexData | null = null;
+  private matDuck: StandardMaterial | null = null;
+  private activeDucks: Mesh[] = [];
+
   private activeFlags: Mesh[] = [];
   private windTime = 0;
 
@@ -302,7 +307,8 @@ export class SceneryFactory {
       this.loadHeroTreeGlb(),
       this.loadBushGlb(),
       this.loadRockGlb(),
-      this.loadCliffGlb()
+      this.loadCliffGlb(),
+      this.loadDuckGlb()
     ]);
   }
 
@@ -736,6 +742,91 @@ export class SceneryFactory {
       if (cliffNorTex) this.matCliff.bumpTexture = cliffNorTex;
     } catch (err) {
       console.error('Failed to load Cliff_01.glb:', err);
+    }
+  }
+
+  private async loadDuckGlb(): Promise<void> {
+    try {
+      const response = await fetch('/models/rubber_duck_01_01.glb');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} loading rubber_duck_01_01.glb`);
+      }
+      const arrayBuf = await response.arrayBuffer();
+      const view = new DataView(arrayBuf);
+      if (view.getUint32(0, true) !== 0x46546C67) {
+        throw new Error('Invalid GLB header in rubber_duck_01_01.glb');
+      }
+
+      const jsonChunkLen = view.getUint32(12, true);
+      const gltf = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(arrayBuf, 20, jsonChunkLen)));
+      const binChunkStart = 20 + jsonChunkLen + 8;
+
+      const prim = gltf.meshes[0].primitives[0];
+      const posAcc = gltf.accessors[prim.attributes.POSITION];
+      const normAcc = gltf.accessors[prim.attributes.NORMAL];
+      const uvAcc = gltf.accessors[prim.attributes.TEXCOORD_0];
+      const idxAcc = gltf.accessors[prim.indices];
+
+      const posBV = gltf.bufferViews[posAcc.bufferView];
+      const normBV = gltf.bufferViews[normAcc.bufferView];
+      const uvBV = gltf.bufferViews[uvAcc.bufferView];
+      const idxBV = gltf.bufferViews[idxAcc.bufferView];
+
+      const positions = new Float32Array(arrayBuf, binChunkStart + (posBV.byteOffset || 0), posAcc.count * 3);
+      const normals = new Float32Array(arrayBuf, binChunkStart + (normBV.byteOffset || 0), normAcc.count * 3);
+      const uvs = new Float32Array(arrayBuf, binChunkStart + (uvBV.byteOffset || 0), uvAcc.count * 2);
+
+      let indices: Uint32Array | Uint16Array;
+      if (idxAcc.componentType === 5125) {
+        indices = new Uint32Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      } else {
+        indices = new Uint16Array(arrayBuf, binChunkStart + (idxBV.byteOffset || 0), idxAcc.count);
+      }
+
+      const vd = new VertexData();
+      vd.positions = positions;
+      vd.normals = normals;
+      vd.uvs = uvs;
+      vd.indices = indices;
+      this.duckVertexData = vd;
+
+      const createOpaqueTextureFromImageIdx = (imgIdx: number, name: string): Texture | null => {
+        const imgDef = gltf.images?.[imgIdx];
+        if (!imgDef || imgDef.bufferView === undefined) return null;
+        const bv = gltf.bufferViews[imgDef.bufferView];
+        const bytes = new Uint8Array(arrayBuf, binChunkStart + (bv.byteOffset || 0), bv.byteLength);
+        const blob = new Blob([bytes], { type: imgDef.mimeType || 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        const tex = new Texture(url, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+        tex.name = name;
+        tex.anisotropicFilteringLevel = 16;
+        return tex;
+      };
+
+      this.matDuck = new StandardMaterial('matDuckTeeMarker', this.scene);
+      this.matDuck.diffuseColor = new Color3(1.15, 1.15, 1.05);
+      // Rich sunny warm emissive bounce so the yellow rubber duck stays vibrant and cheerful regardless of sun angle
+      this.matDuck.emissiveColor = new Color3(0.38, 0.32, 0.12);
+      this.matDuck.specularColor = new Color3(0.35, 0.32, 0.22); // Authentic soft vinyl rubber sheen
+      this.matDuck.specularPower = 32;
+      this.matDuck.backFaceCulling = false;
+
+      // image 1: diffuse 4K texture (vivid yellow body with orange beak & eyes)
+      const duckDiffTex = createOpaqueTextureFromImageIdx(1, 'duckGlbDiff');
+      if (duckDiffTex) this.matDuck.diffuseTexture = duckDiffTex;
+
+      // image 0: normal map texture
+      const duckNorTex = createOpaqueTextureFromImageIdx(0, 'duckGlbNor');
+      if (duckNorTex) this.matDuck.bumpTexture = duckNorTex;
+
+      for (const d of this.activeDucks) {
+        if (!d.isDisposed()) {
+          this.duckVertexData.applyToMesh(d, false);
+          d.material = this.matDuck;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load rubber_duck_01_01.glb:', err);
     }
   }
 
@@ -1259,48 +1350,30 @@ export class SceneryFactory {
     const root = new Mesh(`tee_markers_${x}_${z}`, this.scene);
     root.position.set(x, groundY, z);
 
-    const matTeeRed = new StandardMaterial('matTeeRed', this.scene);
-    matTeeRed.diffuseColor = new Color3(0.82, 0.10, 0.12);
-    matTeeRed.specularColor = new Color3(0.55, 0.45, 0.45);
-    matTeeRed.specularPower = 64;
-
-    const size = 0.10;
-    const cornerRadius = 0.0176;
+    // Rubber Duck Championship Tee Markers (rubber_duck_01_01.glb)
+    // Scale 0.85 gives ~0.24m (9.5 inches) charming tournament tee markers
+    const duckScale = 0.85;
 
     [-2.4, 2.4].forEach((offset, i) => {
-      // 1. Core cube body
-      const cube = MeshBuilder.CreateBox(`tee_red_cube_${i}`, {
-        width: size,
-        height: size,
-        depth: size
-      }, this.scene);
-      cube.position.set(offset, size * 0.5 + 0.008, 0);
-      cube.material = matTeeRed;
-      cube.receiveShadows = true;
-      cube.parent = root;
+      const duckMesh = new Mesh(`tee_duck_${i}_${Math.round(x)}_${Math.round(z)}`, this.scene);
+      duckMesh.position.set(offset, 0.005, 0);
+      duckMesh.scaling.set(duckScale, duckScale, duckScale);
+      // Orient ducks so their charming face, orange beak, and eyes are angled beautifully toward the golfer & tee box center
+      // Left duck angles ~135° inward-back toward tee center (rotation.y = 2.45 rad)
+      // Right duck angles ~135° inward-back toward tee center (rotation.y = -2.45 rad)
+      duckMesh.rotation.y = i === 0 ? 2.45 : -2.45;
 
-      // 2. Smooth rounded corner edge caps for sleek rounded-corner cube appearance
-      const topCap = MeshBuilder.CreateSphere(`tee_red_cap_${i}`, {
-        diameterX: size * 0.98,
-        diameterY: cornerRadius * 2.2,
-        diameterZ: size * 0.98,
-        segments: 18
-      }, this.scene);
-      topCap.position.set(offset, size + 0.005, 0);
-      topCap.material = matTeeRed;
-      topCap.receiveShadows = true;
-      topCap.parent = root;
+      if (this.duckVertexData) {
+        this.duckVertexData.applyToMesh(duckMesh, false);
+      }
+      if (this.matDuck) {
+        duckMesh.material = this.matDuck;
+      }
+      duckMesh.receiveShadows = true;
+      duckMesh.isPickable = true;
+      duckMesh.parent = root;
 
-      // 3. Grounding brass bezel plate at turf level
-      const brassPlate = MeshBuilder.CreateBox(`tee_brass_plate_${i}`, {
-        width: size * 1.12,
-        height: 0.013,
-        depth: size * 1.12
-      }, this.scene);
-      brassPlate.position.set(offset, 0.0065, 0);
-      brassPlate.material = this.matGoldTrim;
-      brassPlate.receiveShadows = true;
-      brassPlate.parent = root;
+      this.activeDucks.push(duckMesh);
     });
 
     return root;

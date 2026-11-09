@@ -1012,14 +1012,25 @@ export class TerrainGrid {
     this.highResGrassDetailTex.update(false);
 
     const pbrGrassNormalTex = new Texture('/textures/pbr_grass/grass_pbr_nor.jpg', this.scene);
-    pbrGrassNormalTex.uScale = 72;
-    pbrGrassNormalTex.vScale = 150;
-    pbrGrassNormalTex.level = 0.16; // Crisp fine turf normal relief without steep slope cross-hatching
+    pbrGrassNormalTex.uScale = 110;
+    pbrGrassNormalTex.vScale = 230;
+    pbrGrassNormalTex.anisotropicFilteringLevel = 16;
+    pbrGrassNormalTex.level = 0.22; // Crisp fine turf normal relief without steep slope cross-hatching
+
+    const pbrGrassDetailTex = new Texture('/textures/pbr_grass/grass_pbr_diff.jpg', this.scene);
+    pbrGrassDetailTex.uScale = 110;
+    pbrGrassDetailTex.vScale = 230;
+    pbrGrassDetailTex.anisotropicFilteringLevel = 16;
 
     const mat = new StandardMaterial('terrainMat', this.scene);
     mat.diffuseTexture = this.splatTexture;
-    mat.ambientTexture = this.highResGrassDetailTex;
     mat.bumpTexture = pbrGrassNormalTex;
+    if (mat.detailMap) {
+      mat.detailMap.texture = pbrGrassDetailTex;
+      mat.detailMap.isEnabled = true;
+      mat.detailMap.diffuseBlendLevel = 0.50;
+      mat.detailMap.roughnessBlendLevel = 0.50;
+    }
     mat.specularColor = new Color3(0.04, 0.05, 0.03);
     mat.specularPower = 36;
     mat.backFaceCulling = false;
@@ -1054,7 +1065,7 @@ export class TerrainGrid {
     };
 
     const roughPattern = this.roughPhotoTile
-      ? makeScaledPattern(this.roughPhotoTile, 0.20)
+      ? makeScaledPattern(this.roughPhotoTile, 0.035)
       : makeScaledPattern(tiles.rough, 0.25);
     const firstCutPattern = makeScaledPattern(tiles.first_cut, 0.25);
     const fairwayPattern = makeScaledPattern(tiles.fairway, 0.25);
