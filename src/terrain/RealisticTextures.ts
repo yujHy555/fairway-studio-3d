@@ -145,10 +145,11 @@ export class RealisticTextures {
     ctx.putImageData(imgData, 0, 0);
 
     // Add crisp seamless overlapping grass blades for turf types
+    // Putting greens feature heavily reduced micro blade detail for a smooth, velvety, tournament-rolled bentgrass surface
     if (type !== 'sand' && type !== 'water_bed') {
-      const bladeCount = type === 'rough' ? 1800 : type === 'green' ? 2400 : 2000;
-      const bladeLen = type === 'rough' ? 7 : type === 'first_cut' ? 5 : type === 'green' ? 2.5 : 4;
-      ctx.lineWidth = type === 'green' ? 0.8 : 1.1;
+      const bladeCount = type === 'rough' ? 1800 : type === 'green' ? 120 : 2000;
+      const bladeLen = type === 'rough' ? 7 : type === 'first_cut' ? 5 : type === 'green' ? 1.2 : 4;
+      ctx.lineWidth = type === 'green' ? 0.5 : 1.1;
 
       for (let i = 0; i < bladeCount; i++) {
         const bx = ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1 * size;
@@ -160,6 +161,9 @@ export class RealisticTextures {
         const isLight = i % 2 === 0;
         if (type === 'rough') {
           ctx.strokeStyle = isLight ? 'rgba(195, 168, 105, 0.22)' : 'rgba(46, 36, 18, 0.20)'; // warm fescue & brown thatch blades
+        } else if (type === 'green') {
+          // Ultra-fine, subtle, velvety bentgrass mowing grain with minimal blade noise
+          ctx.strokeStyle = isLight ? 'rgba(185, 235, 110, 0.05)' : 'rgba(20, 50, 15, 0.04)';
         } else {
           ctx.strokeStyle = isLight ? 'rgba(185, 235, 110, 0.16)' : 'rgba(15, 42, 12, 0.16)';
         }

@@ -60,6 +60,21 @@ export class TerrainGrid {
   private sandPhotoTile: HTMLCanvasElement | null = null;
   private highResGrassDetailTex: DynamicTexture | null = null;
 
+  // Grass007 4K PBR ground texture references & real-time editable UV settings
+  public groundUvScaleU: number = 110;
+  public groundUvScaleV: number = 230;
+  public groundUvOffsetU: number = 0.0;
+  public groundUvOffsetV: number = 0.0;
+  public groundNormalLevel: number = 0.22;
+  public groundDetailBlendLevel: number = 0.50;
+  public groundParallaxScale: number = 0.02;
+
+  public pbrGrassColorTex: Texture | null = null;
+  public pbrGrassNormalTex: Texture | null = null;
+  public pbrGrassRoughTex: Texture | null = null;
+  public pbrGrassDispTex: Texture | null = null;
+  public terrainMaterial: StandardMaterial | null = null;
+
   constructor(scene: Scene, width = GOLF_CONSTANTS.DEFAULT_MAP_WIDTH, length = GOLF_CONSTANTS.DEFAULT_MAP_LENGTH) {
     this.scene = scene;
     this.width = Math.floor(width);
@@ -1011,30 +1026,58 @@ export class TerrainGrid {
     dCtx.fillRect(0, 0, 1024, 1024);
     this.highResGrassDetailTex.update(false);
 
-    const pbrGrassNormalTex = new Texture('/textures/pbr_grass/grass_pbr_nor.jpg', this.scene);
-    pbrGrassNormalTex.uScale = 110;
-    pbrGrassNormalTex.vScale = 230;
-    pbrGrassNormalTex.anisotropicFilteringLevel = 16;
-    pbrGrassNormalTex.level = 0.22; // Crisp fine turf normal relief without steep slope cross-hatching
+    // 1. Normal map (NormalGL 4K)
+    this.pbrGrassNormalTex = new Texture('/textures/pbr_grass/grass_pbr_nor.jpg', this.scene);
+    this.pbrGrassNormalTex.uScale = this.groundUvScaleU;
+    this.pbrGrassNormalTex.vScale = this.groundUvScaleV;
+    this.pbrGrassNormalTex.uOffset = this.groundUvOffsetU;
+    this.pbrGrassNormalTex.vOffset = this.groundUvOffsetV;
+    this.pbrGrassNormalTex.anisotropicFilteringLevel = 16;
+    this.pbrGrassNormalTex.level = this.groundNormalLevel;
 
-    const pbrGrassDetailTex = new Texture('/textures/pbr_grass/grass_pbr_diff.jpg', this.scene);
-    pbrGrassDetailTex.uScale = 110;
-    pbrGrassDetailTex.vScale = 230;
-    pbrGrassDetailTex.anisotropicFilteringLevel = 16;
+    // 2. Color / Albedo map (Color 4K)
+    this.pbrGrassColorTex = new Texture('/textures/pbr_grass/grass_pbr_diff.jpg', this.scene);
+    this.pbrGrassColorTex.uScale = this.groundUvScaleU;
+    this.pbrGrassColorTex.vScale = this.groundUvScaleV;
+    this.pbrGrassColorTex.uOffset = this.groundUvOffsetU;
+    this.pbrGrassColorTex.vOffset = this.groundUvOffsetV;
+    this.pbrGrassColorTex.anisotropicFilteringLevel = 16;
+
+    // 3. Roughness map (Roughness 4K)
+    this.pbrGrassRoughTex = new Texture('/textures/pbr_grass/grass_pbr_rough.jpg', this.scene);
+    this.pbrGrassRoughTex.uScale = this.groundUvScaleU;
+    this.pbrGrassRoughTex.vScale = this.groundUvScaleV;
+    this.pbrGrassRoughTex.uOffset = this.groundUvOffsetU;
+    this.pbrGrassRoughTex.vOffset = this.groundUvOffsetV;
+
+    // 4. Displacement / Height map (Displacement 4K)
+    this.pbrGrassDispTex = new Texture('/textures/pbr_grass/grass_pbr_disp.jpg', this.scene);
+    this.pbrGrassDispTex.uScale = this.groundUvScaleU;
+    this.pbrGrassDispTex.vScale = this.groundUvScaleV;
+    this.pbrGrassDispTex.uOffset = this.groundUvOffsetU;
+    this.pbrGrassDispTex.vOffset = this.groundUvOffsetV;
 
     const mat = new StandardMaterial('terrainMat', this.scene);
     mat.diffuseTexture = this.splatTexture;
-    mat.bumpTexture = pbrGrassNormalTex;
+    mat.bumpTexture = this.pbrGrassNormalTex;
     if (mat.detailMap) {
-      mat.detailMap.texture = pbrGrassDetailTex;
+      mat.detailMap.texture = this.pbrGrassColorTex;
       mat.detailMap.isEnabled = true;
-      mat.detailMap.diffuseBlendLevel = 0.50;
+      mat.detailMap.diffuseBlendLevel = this.groundDetailBlendLevel;
       mat.detailMap.roughnessBlendLevel = 0.50;
+      mat.detailMap.bumpLevel = 0.25;
     }
+
+    // Parallax Occlusion Mapping for realistic 3D displacement
+    mat.useParallax = true;
+    mat.useParallaxOcclusion = true;
+    mat.parallaxScaleBias = this.groundParallaxScale;
+
     mat.specularColor = new Color3(0.04, 0.05, 0.03);
     mat.specularPower = 36;
     mat.backFaceCulling = false;
     mesh.material = mat;
+    this.terrainMaterial = mat;
 
     // Trigger reload of photo patterns into the newly created textures
     this.initHighResPhotoPatterns();
@@ -1042,6 +1085,59 @@ export class TerrainGrid {
     this.rebuildMesh();
 
     return mesh;
+  }
+
+  public setGroundUvSettings(settings: {
+    uScale?: number;
+    vScale?: number;
+    uOffset?: number;
+    vOffset?: number;
+    normalLevel?: number;
+    detailBlendLevel?: number;
+    parallaxScale?: number;
+  }) {
+    if (settings.uScale !== undefined) this.groundUvScaleU = settings.uScale;
+    if (settings.vScale !== undefined) this.groundUvScaleV = settings.vScale;
+    if (settings.uOffset !== undefined) this.groundUvOffsetU = settings.uOffset;
+    if (settings.vOffset !== undefined) this.groundUvOffsetV = settings.vOffset;
+    if (settings.normalLevel !== undefined) this.groundNormalLevel = settings.normalLevel;
+    if (settings.detailBlendLevel !== undefined) this.groundDetailBlendLevel = settings.detailBlendLevel;
+    if (settings.parallaxScale !== undefined) this.groundParallaxScale = settings.parallaxScale;
+
+    const applyUv = (t: Texture | null) => {
+      if (!t) return;
+      t.uScale = this.groundUvScaleU;
+      t.vScale = this.groundUvScaleV;
+      t.uOffset = this.groundUvOffsetU;
+      t.vOffset = this.groundUvOffsetV;
+    };
+
+    applyUv(this.pbrGrassNormalTex);
+    applyUv(this.pbrGrassColorTex);
+    applyUv(this.pbrGrassRoughTex);
+    applyUv(this.pbrGrassDispTex);
+
+    if (this.pbrGrassNormalTex) {
+      this.pbrGrassNormalTex.level = this.groundNormalLevel;
+    }
+    if (this.terrainMaterial) {
+      if (this.terrainMaterial.detailMap) {
+        this.terrainMaterial.detailMap.diffuseBlendLevel = this.groundDetailBlendLevel;
+      }
+      this.terrainMaterial.parallaxScaleBias = this.groundParallaxScale;
+    }
+  }
+
+  public getGroundUvSettings() {
+    return {
+      uScale: this.groundUvScaleU,
+      vScale: this.groundUvScaleV,
+      uOffset: this.groundUvOffsetU,
+      vOffset: this.groundUvOffsetV,
+      normalLevel: this.groundNormalLevel,
+      detailBlendLevel: this.groundDetailBlendLevel,
+      parallaxScale: this.groundParallaxScale
+    };
   }
 
   public redrawSplatTexture() {
@@ -1340,6 +1436,20 @@ export class TerrainGrid {
       });
     }
 
+    // Soft, organic feathered blend from the outer fairway first-cut/fringe into the natural grass PBR terrain
+    const fairwayBlendOuter = this.computeUniformOffsetPolygon(fairwayLoopMeters, 5.0);
+    this.traceLocalMeterPolygon(ctx, fairwayBlendOuter, 0, 0, 0, sX, sZ);
+    ctx.strokeStyle = 'rgba(68, 105, 42, 0.28)';
+    ctx.lineWidth = 10 * sX;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    const fairwayBlendMid = this.computeUniformOffsetPolygon(fairwayLoopMeters, 4.4);
+    this.traceLocalMeterPolygon(ctx, fairwayBlendMid, 0, 0, 0, sX, sZ);
+    ctx.strokeStyle = 'rgba(78, 118, 48, 0.38)';
+    ctx.lineWidth = 6 * sX;
+    ctx.stroke();
+
     // 1. Continuous Uniform +4.2m First-Cut Ring surrounding the entire fairway loop
     // Strictly constant uniform width everywhere with ZERO pinching at joins or ends!
     const fairwayFirstCutRing = this.computeUniformOffsetPolygon(fairwayLoopMeters, 4.2);
@@ -1420,6 +1530,20 @@ export class TerrainGrid {
       const baseGreenPts = this.generateEllipseMeterPoints(halfW, halfL, 160);
       const fringeRingPts = this.computeUniformOffsetPolygon(baseGreenPts, 2.2);
       const firstCutRingPts = this.computeUniformOffsetPolygon(baseGreenPts, 4.4);
+
+      // Soft, organic feathered blend from the green outer first-cut/fringe into the surrounding grass PBR terrain
+      const greenBlendOuter = this.computeUniformOffsetPolygon(baseGreenPts, 5.2);
+      this.traceLocalMeterPolygon(ctx, greenBlendOuter, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
+      ctx.strokeStyle = 'rgba(68, 105, 42, 0.28)';
+      ctx.lineWidth = 10 * sX;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      const greenBlendMid = this.computeUniformOffsetPolygon(baseGreenPts, 4.6);
+      this.traceLocalMeterPolygon(ctx, greenBlendMid, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);
+      ctx.strokeStyle = 'rgba(78, 118, 48, 0.38)';
+      ctx.lineWidth = 6 * sX;
+      ctx.stroke();
 
       // 1. Uniform First-Cut outer ring (+4.4m) around the entire green perimeter
       this.traceLocalMeterPolygon(ctx, firstCutRingPts, feat.centerX, feat.centerZ, feat.rotationRad, sX, sZ);

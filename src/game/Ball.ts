@@ -47,6 +47,11 @@ export class Ball {
   public totalDistance = 0;
   public hasLanded = false;
 
+  // Water hazard entry tracking & relief
+  public lastLandPosition: Vector3D = { x: 110, y: 0, z: 42 };
+  public waterEntryPoint: Vector3D = { x: 110, y: 0, z: 42 };
+  public isPutting: boolean = false;
+
   // Active Pin Target for Dynamic Cup Entry
   public activePinPosition: Vector3D | null = null;
 
@@ -400,6 +405,7 @@ export class Ball {
     this.atRestCounter = 0;
     this.carryDistance = 0;
     this.totalDistance = 0;
+    this.isPutting = shot.club.category === 'putter' || shot.club.name.toLowerCase().includes('putt');
 
     const groundY = this.terrain.getElevation(this.mesh.position.x, this.mesh.position.z);
     this.mesh.position.y = groundY + GOLF_CONSTANTS.BALL_RENDER_RADIUS;
@@ -634,8 +640,18 @@ export class Ball {
         return;
       }
 
+      // Track continuous land position before entering water hazard
+      if (surface !== SurfaceType.WATER) {
+        this.lastLandPosition = {
+          x: this.mesh.position.x,
+          y: this.mesh.position.y,
+          z: this.mesh.position.z
+        };
+      }
+
       // 3. Water hazard check
       if (surface === SurfaceType.WATER) {
+        this.waterEntryPoint = { ...this.lastLandPosition };
         this.state = BallState.IN_WATER;
         this.clearTracer();
         soundFx.playWaterSplash();
@@ -878,17 +894,31 @@ export class Ball {
       finalPath.push(p);
     }
 
+    // Color: Light pink for putting, radiant tournament orange for regular flight
+    if (this.isPutting) {
+      this.tracerMaterial.diffuseColor.set(1.0, 0.72, 0.80);
+      this.tracerMaterial.emissiveColor.set(1.0, 0.65, 0.74);
+    } else {
+      this.tracerMaterial.diffuseColor.set(1.0, 0.48, 0.06);
+      this.tracerMaterial.emissiveColor.set(1.0, 0.38, 0.04);
+    }
+
     if (finalPath.length >= 2) {
       if (this.tracerMesh) {
         this.tracerMesh.dispose();
       }
+      // For putting: thinner radius (0.016m vs 0.045m) and flattened profile (scaling.y = 0.30)
+      const tracerRadius = this.isPutting ? 0.016 : 0.045;
       this.tracerMesh = MeshBuilder.CreateTube('ballToptracer', {
         path: finalPath,
-        radius: 0.045,
+        radius: tracerRadius,
         tessellation: 12,
         cap: Mesh.CAP_ALL,
         updatable: false
       }, this.scene);
+      if (this.isPutting) {
+        this.tracerMesh.scaling.set(1.0, 0.30, 1.0);
+      }
       this.tracerMesh.material = this.tracerMaterial;
       this.tracerMesh.isPickable = false;
       this.tracerMesh.renderingGroupId = 1; // Render under the golf ball (groupId 2)

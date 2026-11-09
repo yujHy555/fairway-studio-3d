@@ -34,6 +34,16 @@ export interface UIEventCallbacks {
   onPushToPlay?: () => void;
   onSaveDefaultHole?: () => void;
   onResetFactoryLayout?: () => void;
+  onSelectGroundLayer?: () => void;
+  onGroundUvChange?: (settings: {
+    uScale?: number;
+    vScale?: number;
+    uOffset?: number;
+    vOffset?: number;
+    normalLevel?: number;
+    detailBlendLevel?: number;
+    parallaxScale?: number;
+  }) => void;
 }
 
 export class UIController {
@@ -154,6 +164,9 @@ export class UIController {
             <strong>LMB Click</strong> any tree, rock, cliff, or prop to select it.<br/>
             Use <strong>Move [G]</strong>, <strong>Rotate [R]</strong>, and <strong>Scale [S]</strong> gizmos to adjust.
           </div>
+          <button id="btn-select-ground-layer" class="btn btn-sm btn-block mt-2" style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #86efac; font-weight: 700; padding: 6px 10px;">
+            🌱 Inspect Ground PBR Material
+          </button>
         </div>
 
         <!-- Sculpt Controls -->
@@ -344,6 +357,44 @@ export class UIController {
             <button id="btn-dev-delete-obj" class="btn btn-danger btn-block mt-2" style="display: none;">
               🗑️ Delete Object [Del]
             </button>
+          </div>
+
+          <!-- Ground PBR Material & UV Settings Inspector -->
+          <div class="dev-section" id="dev-ground-pbr-section">
+            <div class="dev-section-title">GROUND PBR MATERIAL (Grass007 4K)</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">
+              Active Maps: <strong style="color: #38bdf8;">Color 4K</strong>, <strong style="color: #38bdf8;">NormalGL 4K</strong>, <strong style="color: #38bdf8;">Roughness 4K</strong>, <strong style="color: #38bdf8;">Displacement (POM)</strong>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">UV Scale U</span>
+              <input type="range" id="ground-uv-scale-u" min="20" max="350" step="1" value="110" class="dev-slider" />
+              <span id="val-ground-scale-u" class="dev-slider-val">110</span>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">UV Scale V</span>
+              <input type="range" id="ground-uv-scale-v" min="40" max="600" step="1" value="230" class="dev-slider" />
+              <span id="val-ground-scale-v" class="dev-slider-val">230</span>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">UV Offset U</span>
+              <input type="range" id="ground-uv-offset-u" min="-1" max="1" step="0.01" value="0" class="dev-slider" />
+              <span id="val-ground-offset-u" class="dev-slider-val">0.00</span>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">UV Offset V</span>
+              <input type="range" id="ground-uv-offset-v" min="-1" max="1" step="0.01" value="0" class="dev-slider" />
+              <span id="val-ground-offset-v" class="dev-slider-val">0.00</span>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">Normal Relief</span>
+              <input type="range" id="ground-normal-level" min="0.05" max="0.80" step="0.01" value="0.22" class="dev-slider" />
+              <span id="val-ground-normal" class="dev-slider-val">0.22</span>
+            </div>
+            <div class="dev-control-row">
+              <span class="dev-control-lbl">Displacement (POM)</span>
+              <input type="range" id="ground-disp-level" min="0.00" max="0.08" step="0.005" value="0.02" class="dev-slider" />
+              <span id="val-ground-disp" class="dev-slider-val">0.020</span>
+            </div>
           </div>
 
           <!-- Deploy & Persist Zone Actions -->
@@ -872,6 +923,31 @@ export class UIController {
       this.callbacks.onResetFactoryLayout?.();
     });
 
+    // Select Ground Layer button
+    document.getElementById('btn-select-ground-layer')?.addEventListener('click', () => {
+      this.callbacks.onSelectGroundLayer?.();
+    });
+
+    // Ground PBR Material UV Sliders
+    const bindGroundSlider = (id: string, valId: string, prop: string, decimals = 0) => {
+      const slider = document.getElementById(id) as HTMLInputElement | null;
+      const valSpan = document.getElementById(valId);
+      if (slider && valSpan) {
+        slider.addEventListener('input', () => {
+          const num = parseFloat(slider.value);
+          valSpan.innerText = decimals > 0 ? num.toFixed(decimals) : num.toString();
+          this.callbacks.onGroundUvChange?.({ [prop]: num });
+        });
+      }
+    };
+
+    bindGroundSlider('ground-uv-scale-u', 'val-ground-scale-u', 'uScale', 0);
+    bindGroundSlider('ground-uv-scale-v', 'val-ground-scale-v', 'vScale', 0);
+    bindGroundSlider('ground-uv-offset-u', 'val-ground-offset-u', 'uOffset', 2);
+    bindGroundSlider('ground-uv-offset-v', 'val-ground-offset-v', 'vOffset', 2);
+    bindGroundSlider('ground-normal-level', 'val-ground-normal', 'normalLevel', 2);
+    bindGroundSlider('ground-disp-level', 'val-ground-disp', 'parallaxScale', 3);
+
     // Hotkeys Guide toggle minimize
     const guideBody = document.getElementById('guide-body');
     const guideToggle = document.getElementById('btn-toggle-guide');
@@ -1102,6 +1178,53 @@ export class UIController {
       </div>
     `;
     if (deleteBtn) deleteBtn.style.display = 'block';
+  }
+
+  public showGroundPbrInspector(settings: {
+    uScale: number;
+    vScale: number;
+    uOffset: number;
+    vOffset: number;
+    normalLevel: number;
+    detailBlendLevel: number;
+    parallaxScale: number;
+  }) {
+    const scaleU = document.getElementById('ground-uv-scale-u') as HTMLInputElement | null;
+    const scaleV = document.getElementById('ground-uv-scale-v') as HTMLInputElement | null;
+    const offU = document.getElementById('ground-uv-offset-u') as HTMLInputElement | null;
+    const offV = document.getElementById('ground-uv-offset-v') as HTMLInputElement | null;
+    const nor = document.getElementById('ground-normal-level') as HTMLInputElement | null;
+    const disp = document.getElementById('ground-disp-level') as HTMLInputElement | null;
+
+    if (scaleU) scaleU.value = settings.uScale.toString();
+    if (scaleV) scaleV.value = settings.vScale.toString();
+    if (offU) offU.value = settings.uOffset.toString();
+    if (offV) offV.value = settings.vOffset.toString();
+    if (nor) nor.value = settings.normalLevel.toString();
+    if (disp) disp.value = settings.parallaxScale.toString();
+
+    const valScaleU = document.getElementById('val-ground-scale-u');
+    const valScaleV = document.getElementById('val-ground-scale-v');
+    const valOffU = document.getElementById('val-ground-offset-u');
+    const valOffV = document.getElementById('val-ground-offset-v');
+    const valNor = document.getElementById('val-ground-normal');
+    const valDisp = document.getElementById('val-ground-disp');
+
+    if (valScaleU) valScaleU.innerText = Math.round(settings.uScale).toString();
+    if (valScaleV) valScaleV.innerText = Math.round(settings.vScale).toString();
+    if (valOffU) valOffU.innerText = settings.uOffset.toFixed(2);
+    if (valOffV) valOffV.innerText = settings.vOffset.toFixed(2);
+    if (valNor) valNor.innerText = settings.normalLevel.toFixed(2);
+    if (valDisp) valDisp.innerText = settings.parallaxScale.toFixed(3);
+
+    // Also update selected info box to show Ground Layer
+    const info = document.getElementById('dev-selected-info');
+    if (info) {
+      info.innerHTML = `
+        <div class="dev-obj-name" style="color: #4ade80;">🌱 Ground Layer (GolfCourseTerrain)</div>
+        <div class="dev-obj-details">Material: Grass007 4K PBR<br/>Textures: Color, NormalGL, Roughness, Displacement</div>
+      `;
+    }
   }
 
   public updateDevStats(trees: number, rocks: number, cliffs: number, bunkers: number) {

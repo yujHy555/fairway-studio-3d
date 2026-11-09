@@ -393,7 +393,7 @@ export class CourseManager {
 
     const teeY = this.terrain.getElevation(hole.teePosition.x, hole.teePosition.z);
     hole.teePosition.y = teeY;
-    this.activeTeeMesh = this.scenery.createTeeMarkers(hole.teePosition.x, teeY, hole.teePosition.z);
+    this.activeTeeMesh = this.scenery.createTeeMarkers(hole.teePosition.x, teeY, hole.teePosition.z, hole.pinPosition.x, hole.pinPosition.z);
 
     // Orient tee markers perpendicular to the initial fairway target line
     const targetPt = hole.waypoints && hole.waypoints.length > 0 ? hole.waypoints[0] : hole.pinPosition;

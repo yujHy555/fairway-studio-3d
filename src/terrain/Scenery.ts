@@ -1346,7 +1346,7 @@ export class SceneryFactory {
    * Realistic Championship Tee Markers: Red cubes with rounded corners,
    * compact PGA size (~13cm), and spaced further apart (~4.8m).
    */
-  public createTeeMarkers(x: number, groundY: number, z: number): Mesh {
+  public createTeeMarkers(x: number, groundY: number, z: number, greenX = 130, greenZ = 360): Mesh {
     const root = new Mesh(`tee_markers_${x}_${z}`, this.scene);
     root.position.set(x, groundY, z);
 
@@ -1354,14 +1354,15 @@ export class SceneryFactory {
     // Scale 0.85 gives ~0.24m (9.5 inches) charming tournament tee markers
     const duckScale = 0.85;
 
+    // Orient ducks facing straight down the fairway directly towards the green
+    const angleToGreen = Math.atan2(greenX - x, greenZ - z);
+
     [-2.4, 2.4].forEach((offset, i) => {
       const duckMesh = new Mesh(`tee_duck_${i}_${Math.round(x)}_${Math.round(z)}`, this.scene);
       duckMesh.position.set(offset, 0.005, 0);
       duckMesh.scaling.set(duckScale, duckScale, duckScale);
-      // Orient ducks so their charming face, orange beak, and eyes are angled beautifully toward the golfer & tee box center
-      // Left duck angles ~135° inward-back toward tee center (rotation.y = 2.45 rad)
-      // Right duck angles ~135° inward-back toward tee center (rotation.y = -2.45 rad)
-      duckMesh.rotation.y = i === 0 ? 2.45 : -2.45;
+      // Face directly towards the green per user request
+      duckMesh.rotation.y = angleToGreen;
 
       if (this.duckVertexData) {
         this.duckVertexData.applyToMesh(duckMesh, false);
