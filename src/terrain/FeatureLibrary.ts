@@ -7,37 +7,40 @@ export const PRESET_FEATURES: PresetFeature[] = [
     id: 'bunker_pot',
     name: 'Kidney Greenside Bunker',
     category: 'bunker',
-    description: 'Deep kidney-shaped greenside bunker with sharp revetted sod lip (-1.40m depth)',
+    description: 'Deep kidney-shaped greenside bunker with sharp revetted sod lip (-0.78m depth)',
     icon: '🕳️',
     surfaceType: SurfaceType.BUNKER,
     width: 12,
     length: 18,
-    depthProfile: -1.40,
-    lipHeight: 0.72
+    depthProfile: -0.78,
+    lipHeight: 0.60,
+    bunkerShapeIndex: 0
   },
   {
     id: 'bunker_fairway_crescent',
     name: 'Kidney Fairway Bunker',
     category: 'bunker',
-    description: 'Sweeping kidney-shaped fairway hazard with raised sod berm (-1.35m depth)',
+    description: 'Sweeping kidney-shaped fairway hazard with raised sod berm (-0.80m depth)',
     icon: '🥐',
     surfaceType: SurfaceType.BUNKER,
     width: 15,
     length: 25,
-    depthProfile: -1.35,
-    lipHeight: 0.68
+    depthProfile: -0.80,
+    lipHeight: 0.60,
+    bunkerShapeIndex: 1
   },
   {
     id: 'bunker_greenside_waste',
     name: 'Large Kidney Waste Bunker',
     category: 'bunker',
-    description: 'Expansive kidney sand hazard with defined turf lips (-1.30m depth)',
+    description: 'Expansive kidney sand hazard with defined turf lips (-0.75m depth)',
     icon: '🏖️',
     surfaceType: SurfaceType.BUNKER,
     width: 20,
     length: 34,
-    depthProfile: -1.30,
-    lipHeight: 0.65
+    depthProfile: -0.75,
+    lipHeight: 0.55,
+    bunkerShapeIndex: 4
   },
 
   // GREENS

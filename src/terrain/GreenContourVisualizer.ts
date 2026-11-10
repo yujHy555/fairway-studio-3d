@@ -27,8 +27,10 @@ export class GreenContourVisualizer {
   private scene: Scene;
   private terrain: TerrainGrid;
 
-  public showGrid: boolean = true;
-  public showDots: boolean = true;
+  public showGrid: boolean = false;
+  public showDots: boolean = false;
+  public gridAlpha: number = 0.0;
+  public dotsAlpha: number = 0.0;
 
   private comets: SlopeComet[] = [];
   private beadParent: Mesh;
@@ -43,48 +45,83 @@ export class GreenContourVisualizer {
     this.terrain = terrain;
 
     this.beadParent = new Mesh('GreenContourParent', this.scene);
+    this.beadParent.setEnabled(false);
 
     // Color-coded luminous materials for slope comets (Mild = Lime/Cyan, Medium = Gold, Steep = Coral Red)
     this.matMild = new StandardMaterial('slopeBeadMild', this.scene);
     this.matMild.emissiveColor = new Color3(0.35, 1.0, 0.55);
     this.matMild.disableLighting = true;
+    this.matMild.alpha = 0.0;
 
     this.matMed = new StandardMaterial('slopeBeadMed', this.scene);
     this.matMed.emissiveColor = new Color3(1.0, 0.88, 0.20);
     this.matMed.disableLighting = true;
+    this.matMed.alpha = 0.0;
 
     this.matSteep = new StandardMaterial('slopeBeadSteep', this.scene);
     this.matSteep.emissiveColor = new Color3(1.0, 0.35, 0.15);
     this.matSteep.disableLighting = true;
+    this.matSteep.alpha = 0.0;
 
     this.rebuildSlopeGrid();
 
     this.scene.onBeforeRenderObservable.add(() => {
-      if (!this.showDots || this.comets.length === 0) return;
+      if (this.dotsAlpha <= 0.005 || this.comets.length === 0) return;
       const dt = this.scene.getEngine().getDeltaTime() / 1000;
       this.updateComets(dt);
     });
   }
 
+  /**
+   * Smoothly animates visibility of Green Grid and Green Slope Dots independently.
+   */
+  public updatePuttingFade(dt: number) {
+    if (this.showGrid) {
+      this.gridAlpha = Math.min(1.0, this.gridAlpha + dt * 2.2);
+    } else {
+      this.gridAlpha = Math.max(0.0, this.gridAlpha - dt * 2.0);
+    }
+
+    if (this.showDots) {
+      this.dotsAlpha = Math.min(1.0, this.dotsAlpha + dt * 2.2);
+    } else {
+      this.dotsAlpha = Math.max(0.0, this.dotsAlpha - dt * 2.4);
+    }
+
+    if (this.contourLineGrid) {
+      if (this.gridAlpha <= 0.005) {
+        this.contourLineGrid.setEnabled(false);
+      } else {
+        this.contourLineGrid.setEnabled(true);
+        this.contourLineGrid.visibility = this.gridAlpha;
+      }
+    }
+
+    if (this.dotsAlpha <= 0.005) {
+      this.beadParent.setEnabled(false);
+    } else {
+      this.beadParent.setEnabled(true);
+      this.matMild.alpha = this.dotsAlpha;
+      this.matMed.alpha = this.dotsAlpha;
+      this.matSteep.alpha = this.dotsAlpha;
+    }
+  }
+
   public setGridVisible(visible: boolean) {
     this.showGrid = visible;
-    if (this.contourLineGrid) {
-      this.contourLineGrid.setEnabled(visible);
-    }
   }
 
   public setDotsVisible(visible: boolean) {
     this.showDots = visible;
-    this.beadParent.setEnabled(visible);
   }
 
   public toggleGrid(): boolean {
-    this.setGridVisible(!this.showGrid);
+    this.showGrid = !this.showGrid;
     return this.showGrid;
   }
 
   public toggleDots(): boolean {
-    this.setDotsVisible(!this.showDots);
+    this.showDots = !this.showDots;
     return this.showDots;
   }
 
@@ -236,7 +273,8 @@ export class GreenContourVisualizer {
       );
       this.contourLineGrid.isPickable = false;
       this.contourLineGrid.renderingGroupId = 0; // Under ball (groupId 2)
-      this.contourLineGrid.setEnabled(this.showGrid);
+      this.contourLineGrid.visibility = this.gridAlpha;
+      this.contourLineGrid.setEnabled(this.gridAlpha > 0.005);
     }
 
     // 3. Synchronized Downhill Comet Beads (placed at 2.0m intervals for crystal-clear reading)
@@ -296,7 +334,7 @@ export class GreenContourVisualizer {
     }
 
     templateSphere.dispose();
-    this.beadParent.setEnabled(this.showDots);
+    this.beadParent.setEnabled(this.dotsAlpha > 0.005);
     this.updateComets(0.016);
   }
 
@@ -320,9 +358,9 @@ export class GreenContourVisualizer {
         const py = this.terrain.getElevation(px, pz) + 0.038;
         mesh.position.set(px, py, pz);
 
-        // Smooth fade envelope at start and end of stroke
+        // Smooth fade envelope at start and end of stroke, modulated by active dotsAlpha fade
         const envelope = Math.sin(t * Math.PI);
-        const s = Math.max(0.15, envelope * baseScale);
+        const s = Math.max(0.01, envelope * baseScale * this.dotsAlpha);
         mesh.scaling.set(s, s * 0.55, s);
       };
 

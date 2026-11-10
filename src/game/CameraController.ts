@@ -16,10 +16,10 @@ export class CameraController {
   public isUserDragging: boolean = false;
   private keysPressed: Set<string> = new Set();
 
-  // RMB hold-to-pan-and-zoom state
-  private isRmbDown: boolean = false;
-  private lastRmbX: number = 0;
-  private lastRmbY: number = 0;
+  // MMB & RMB hold-to-pan state with proportional distance scaling
+  private isPanningDown: boolean = false;
+  private lastPanX: number = 0;
+  private lastPanY: number = 0;
 
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     this.scene = scene;
@@ -28,25 +28,24 @@ export class CameraController {
       'pgaCamera',
       -Math.PI / 2,
       Math.PI / 2.5,
-      6.5,
+      7.5,
       new Vector3(95, 8.0, 42),
       this.scene
     );
-    // Attach control with MMB (button 1) as Babylon's native panning button and LMB (button 0) as orbit
+    // Attach control with LMB (button 0) for smooth Orbiting
     this.camera.attachControl(canvas, true, false);
-    this.camera._panningMouseButton = 1;
 
     const pointersInput = (this.camera.inputs?.attached?.pointers as any);
     if (pointersInput) {
-      // LMB (0) = Orbit, MMB (1) = Pan; RMB (2) is handled below for pure orthogonal screen-plane Pan ONLY
-      pointersInput.buttons = [0, 1];
+      // LMB (0) = Pure Orbit; MMB (1) & RMB (2) are handled by our unified screen-plane Pan handler below
+      pointersInput.buttons = [0];
       pointersInput.multiTouchPanAndZoom = false;
       pointersInput.multiTouchPanning = true;
     }
 
-    // Near/Far planes tuned for both millimeter close-ups of the golf ball and course vistas
-    this.camera.minZ = 0.05;
-    this.camera.maxZ = 2400;
+    // Near/Far planes tuned for maximum depth buffer precision (10x greater stability, zero shadow z-fighting)
+    this.camera.minZ = 0.40;
+    this.camera.maxZ = 1400;
 
     // Remove default keyboard rotation on ArcRotateCamera so we can provide smooth WASD ground-gliding
     this.camera.keysUp = [];
@@ -61,47 +60,50 @@ export class CameraController {
       if (e.button === 0 || e.button === 1 || e.button === 2) {
         this.isUserDragging = true;
       }
-      if (e.button === 2) {
-        this.isRmbDown = true;
-        this.lastRmbX = e.clientX;
-        this.lastRmbY = e.clientY;
+      // Both MMB (1) and RMB (2) initiate smooth, radius-proportional screen-plane panning
+      if (e.button === 1 || e.button === 2) {
+        this.isPanningDown = true;
+        this.lastPanX = e.clientX;
+        this.lastPanY = e.clientY;
+        e.preventDefault();
       }
     });
 
     window.addEventListener('pointermove', (e) => {
-      if (!this.isRmbDown) return;
-      const dx = e.clientX - this.lastRmbX;
-      const dy = e.clientY - this.lastRmbY;
-      this.lastRmbX = e.clientX;
-      this.lastRmbY = e.clientY;
+      if (!this.isPanningDown) return;
+      const dx = e.clientX - this.lastPanX;
+      const dy = e.clientY - this.lastPanY;
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
 
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      if (Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25) return;
 
+      // Distance-proportional sensitivity: fine precision when close, effortless gliding when zoomed out
       const r = Math.max(1.5, this.camera.radius);
-      const panScale = r * 0.0018;
+      const panScale = r * 0.0020;
 
-      // Pure Left/Right & Up/Down Panning (ZERO forward/backward Z-depth motion)
+      // Pure screen-plane panning (orthogonal to current view angle and vertical screen axis)
       const cosAlpha = Math.cos(this.camera.alpha);
       const sinAlpha = Math.sin(this.camera.alpha);
 
-      // Horizontal RMB drag (dx) pans strictly Left & Right perpendicular to view heading
       const rightX = sinAlpha;
       const rightZ = -cosAlpha;
-      const moveX = -dx * rightX * panScale;
-      const moveZ = -dx * rightZ * panScale;
 
-      // Vertical RMB drag (dy) pans strictly Up & Down along Y (never forward/back across the ground)
-      const moveY = dy * panScale;
+      // Swapped panning direction: dragging mouse pans the camera view intuitively
+      const moveX = dx * rightX * panScale;
+      const moveZ = dx * rightZ * panScale;
+      const moveY = -dy * panScale;
 
-      this.camera.target.x = Math.max(-20, Math.min(240, this.camera.target.x + moveX));
-      this.camera.target.y = Math.max(0.25, Math.min(180, this.camera.target.y + moveY));
-      this.camera.target.z = Math.max(-20, Math.min(480, this.camera.target.z + moveZ));
+      this.camera.target.x = Math.max(-40, Math.min(260, this.camera.target.x + moveX));
+      // Unrestricted downward panning (target can go down into hollows/bunkers)
+      this.camera.target.y = Math.max(-50, Math.min(250, this.camera.target.y + moveY));
+      this.camera.target.z = Math.max(-40, Math.min(500, this.camera.target.z + moveZ));
     });
 
     window.addEventListener('pointerup', (e) => {
       this.isUserDragging = false;
-      if (e.button === 2) {
-        this.isRmbDown = false;
+      if (e.button === 1 || e.button === 2) {
+        this.isPanningDown = false;
       }
     });
 
@@ -119,9 +121,10 @@ export class CameraController {
     this.camera.upperRadiusLimit = 360;
     this.camera.wheelDeltaPercentage = 0.05;
     this.camera.wheelPrecision = 15;
-    this.camera.inertia = 0.82;
-    this.camera.angularSensibilityX = 950;
-    this.camera.angularSensibilityY = 950;
+    this.camera.inertia = 0.65;
+    this.camera.panningInertia = 0.65;
+    this.camera.angularSensibilityX = 650;
+    this.camera.angularSensibilityY = 650;
     this.camera.panningSensibility = 80;
     // Pure screen-plane panning (X = ScreenRight, Y = ScreenUp, Z = 0 so panning never zooms along view depth)
     this.camera.panningAxis = new Vector3(1, 1, 0);
@@ -130,26 +133,25 @@ export class CameraController {
   public setMode(mode: CameraMode) {
     this.mode = mode;
 
-    // Keep LMB (0) for Orbit and MMB (1) for Pan across all modes; RMB (2) is handled by our pure screen-plane Pan handler
+    // Keep LMB (0) for pure Orbit across all modes; MMB (1) and RMB (2) handle pure screen-plane Pan
     const pointersInput = (this.camera.inputs?.attached?.pointers as any);
     if (pointersInput) {
-      pointersInput.buttons = [0, 1];
+      pointersInput.buttons = [0];
     }
 
     if (mode === 'designer') {
       this.camera.radius = 85;
       this.camera.beta = Math.PI / 3.2;
     } else if (mode === 'aim') {
-      // Pulled 2m further back from the previous 2.4m default ball position -> 4.4m
-      this.camera.radius = 4.4;
+      // Default start ball view: pulled back 5.4m (1m further back from previous 4.4m)
+      this.camera.radius = 5.4;
       this.camera.beta = Math.PI / 2.42;
     } else if (mode === 'green') {
       // Intimate, broadcast-style putting camera framing the ball and aiming towards the cup
       this.camera.radius = 3.6;
       this.camera.beta = Math.PI / 2.58;
     } else if (mode === 'flight') {
-      this.camera.radius = 9.5;
-      this.camera.beta = Math.PI / 2.65;
+      // Retain current position and smoothly expand framing without 1-frame pop
     }
   }
 
@@ -160,7 +162,7 @@ export class CameraController {
     const aimRad = (aimAzimuthDeg * Math.PI) / 180.0;
     this.camera.alpha = -aimRad - Math.PI / 2;
     this.camera.beta = Math.PI / 2.42;
-    this.camera.radius = 4.4;
+    this.camera.radius = 5.4;
   }
 
   public setAimHeading(ballPos: Vector3, aimAzimuthDeg: number) {
@@ -175,40 +177,34 @@ export class CameraController {
   public updateFlightCamera(ballPos: Vector3, ballVelocity: Vector3D, groundY = 0, hasLanded = false) {
     if (this.mode !== 'flight') return;
 
-    const heightAboveGround = Math.max(0, ballPos.y - groundY);
-    const isNearGroundOrBouncing = hasLanded || (heightAboveGround < 3.8 && ballVelocity.y <= 0);
-
-    // Anchor target Y to the turf plane when landing/bouncing so the camera stays steady while the ball visibly hops up and down!
-    const targetY = isNearGroundOrBouncing
-      ? Math.max(0.35, groundY + 0.42)
-      : Math.max(0.5, ballPos.y);
-
-    const horizontalLerp = isNearGroundOrBouncing ? 0.55 : 0.35;
-    const verticalLerp = isNearGroundOrBouncing ? 0.30 : 0.25;
-
-    this.camera.target.x += (ballPos.x - this.camera.target.x) * horizontalLerp;
-    this.camera.target.z += (ballPos.z - this.camera.target.z) * horizontalLerp;
-    this.camera.target.y += (targetY - this.camera.target.y) * verticalLerp;
+    // Direct, jitter-free lock to ball position: completely eliminates camera-ball lag and pushing illusions
+    this.camera.target.x = ballPos.x;
+    this.camera.target.z = ballPos.z;
+    if (!hasLanded) {
+      this.camera.target.y = ballPos.y;
+    } else {
+      this.camera.target.y = Math.max(groundY + 0.25, ballPos.y);
+    }
 
     if (this.isUserDragging) return;
 
-    // Frame the landing & bounce clearly at a close broadcast angle (~5.4m) when the ball hits the turf
-    const desiredRadius = isNearGroundOrBouncing ? 5.4 : 9.8;
-    const desiredBeta = isNearGroundOrBouncing ? Math.PI / 2.42 : Math.PI / 2.85;
-    this.camera.radius += (desiredRadius - this.camera.radius) * 0.12;
-    this.camera.beta += (desiredBeta - this.camera.beta) * 0.10;
+    // Broadcast-style elevated rear-quarter framing keeps the flight arc & Toptracer cleanly in view
+    // beside the ball without clipping into the camera lens or obstructing takeoff
+    const desiredRadius = hasLanded ? 5.6 : 9.2;
+    const desiredBeta = hasLanded ? Math.PI / 2.48 : Math.PI / 2.95;
+    this.camera.radius += (desiredRadius - this.camera.radius) * 0.08;
+    this.camera.beta += (desiredBeta - this.camera.beta) * 0.08;
 
     const horizontalSpeed = Math.sqrt(ballVelocity.x * ballVelocity.x + ballVelocity.z * ballVelocity.z);
     if (horizontalSpeed > 1.2) {
       const headingRad = Math.atan2(ballVelocity.x, ballVelocity.z);
-      // Natural PGA Tour broadcast camera offset: slightly offset laterally (+0.12 rad) so the flight tracer
-      // stays clearly in view without ever passing directly through the camera center or near-clipping plane!
-      const targetAlpha = -headingRad - Math.PI / 2 + 0.12;
+      const quarterOffset = hasLanded ? 0.08 : 0.20;
+      const targetAlpha = -headingRad - Math.PI / 2 + quarterOffset;
 
       let alphaDiff = targetAlpha - this.camera.alpha;
       while (alphaDiff < -Math.PI) alphaDiff += Math.PI * 2;
       while (alphaDiff > Math.PI) alphaDiff -= Math.PI * 2;
-      this.camera.alpha += alphaDiff * 0.05;
+      this.camera.alpha += alphaDiff * 0.06;
     }
   }
 
@@ -304,12 +300,6 @@ export class CameraController {
 
     const currentCamY = this.camera.target.y + r * Math.cos(this.camera.beta);
 
-    // If user is actively dragging with RMB to pan, allow vertical translation
-    if (this.isRmbDown && currentCamY < requiredCamY) {
-      this.camera.target.y += (requiredCamY - currentCamY);
-      return;
-    }
-
     const dyNeeded = requiredCamY - this.camera.target.y;
     const minBeta = 0.08; // Keep at least ~4.5 deg from vertical
     const maxAllowedBeta = Math.PI / 1.76;
@@ -325,12 +315,13 @@ export class CameraController {
         this.camera.beta = safeBeta;
       }
     } else {
-      // Camera is close to a steep bluff or hill behind target: clamp beta to near-vertical
-      // and gently push radius in if needed rather than snapping target.y
+      // When target is low (unrestricted downward panning into hollows), prevent camera eye from clipping
+      // by setting beta to overhead and ensuring radius holds the camera eye above required elevation
       this.camera.upperBetaLimit = minBeta;
-      this.camera.beta = Math.min(this.camera.beta, minBeta);
-      if (this.mode === 'designer' || this.mode === 'scout') {
-        this.camera.target.y = Math.max(this.camera.target.y, requiredCamY - r * 0.95);
+      this.camera.beta = minBeta;
+      const minRadiusNeeded = (requiredCamY - this.camera.target.y) / Math.cos(minBeta);
+      if (this.camera.radius < minRadiusNeeded) {
+        this.camera.radius = minRadiusNeeded;
       }
     }
   }
@@ -359,5 +350,19 @@ export class CameraController {
     this.camera.alpha = -Math.PI / 2;
     this.camera.beta = 0.05;
     this.camera.radius = 160;
+  }
+
+  /**
+   * Frames the camera directly onto a selected object's center of interest in Designer Mode.
+   * Sets the camera target to the object so all subsequent LMB orbit rotations pivot smoothly around it.
+   */
+  public frameOnTarget(targetPos: Vector3, radius?: number) {
+    this.camera.target.copyFrom(targetPos);
+    if (radius !== undefined) {
+      this.camera.radius = radius;
+    } else {
+      this.camera.radius = Math.max(4.0, Math.min(75, this.camera.radius * 0.55));
+    }
+    this.camera.beta = Math.PI / 3.0;
   }
 }

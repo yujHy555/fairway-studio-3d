@@ -138,6 +138,39 @@ export class Aerodynamics {
   }
 
   /**
+   * Computes club- and swing-speed-dependent wind influence factor.
+   * Long clubs (Driver, 3-Wood, 3-Hybrid, Long Irons) traverse high open air and feel strong wind drift,
+   * while shorter irons, wedges, and low partial chip shots are much more sheltered and wind-resistant.
+   */
+  public static getWindFactorForShot(shot: ShotResult): number {
+    const club = shot.club;
+    if (club.category === 'putter') return 0.0;
+
+    const clubWindWeights: Record<string, number> = {
+      driver: 1.00,
+      '3wood': 0.94,
+      '3hybrid': 0.88,
+      '5iron': 0.80,
+      '7iron': 0.56,
+      '9iron': 0.36,
+      pw: 0.24,
+      sw: 0.16,
+      lw: 0.12
+    };
+    let baseWeight = clubWindWeights[club.id];
+    if (baseWeight === undefined) {
+      const carryT = Math.max(0, Math.min(1, (club.typicalCarryMeters - 60) / 180));
+      baseWeight = 0.14 + 0.86 * Math.pow(carryT, 1.35);
+    }
+
+    // Partial-power swings / chips stay below the canopy boundary layer and experience even less wind drift
+    const speedRatio = Math.max(0.15, Math.min(1.05, shot.launchSpeedMps / Math.max(10, club.baseBallSpeedMps)));
+    const chipShelterScale = speedRatio < 0.85 ? Math.pow(speedRatio / 0.85, 1.35) : 1.0;
+
+    return Math.max(0.06, Math.min(1.0, baseWeight * chipShelterScale));
+  }
+
+  /**
    * Converts launch shot parameters (speed, angle, azimuth, backspin, sidespin)
    * into initial 3D velocity and spin vectors.
    */
@@ -191,10 +224,11 @@ export class Aerodynamics {
     const { velocity, spinVec } = this.calculateInitialVectors(shot);
 
     const windRad = (shot.windHeadingDeg * Math.PI) / 180.0;
+    const windFactor = this.getWindFactorForShot(shot);
     const windVec: Vector3D = {
-      x: shot.windSpeedMps * Math.sin(windRad),
+      x: shot.windSpeedMps * windFactor * Math.sin(windRad),
       y: 0,
-      z: shot.windSpeedMps * Math.cos(windRad)
+      z: shot.windSpeedMps * windFactor * Math.cos(windRad)
     };
 
     let curPos = { ...startPos };

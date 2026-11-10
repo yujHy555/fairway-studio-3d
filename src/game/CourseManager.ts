@@ -13,8 +13,8 @@ export class CourseManager {
 
   private terrain: TerrainGrid;
   private scenery: SceneryFactory;
-  private activePinMesh: Mesh | null = null;
-  private activeTeeMesh: Mesh | null = null;
+  public activePinMesh: Mesh | null = null;
+  public activeTeeMesh: Mesh | null = null;
   private sceneryMeshes: Mesh[] = [];
 
   constructor(terrain: TerrainGrid, scenery: SceneryFactory) {
@@ -65,6 +65,10 @@ export class CourseManager {
 
   public get currentHole(): GolfHole {
     return this.courseData.holes[this.currentHoleIndex];
+  }
+
+  public getActiveHole(): GolfHole {
+    return this.currentHole;
   }
 
   /**
@@ -182,6 +186,16 @@ export class CourseManager {
       });
     }
 
+    // Register all stamped features (bunkers, greens, water, tees) so no foliage spawns in hazards
+    for (const f of this.terrain.stampedFeatures) {
+      const rad = Math.max(f.width, f.length) * 0.5;
+      obstacles.push({
+        x: f.centerX,
+        z: f.centerZ,
+        radius: rad + (f.surfaceType === SurfaceType.BUNKER ? 1.6 : 0.8)
+      });
+    }
+
     const placedHeroTrees: PlacedEntity[] = [];
     const placedPines: PlacedEntity[] = [];
     const placedBushes: PlacedEntity[] = [];
@@ -228,6 +242,11 @@ export class CourseManager {
           }
         }
         if (!collided) break;
+      }
+
+      const surf = this.terrain.getSurfaceAt(x, z);
+      if (surf === SurfaceType.BUNKER || surf === SurfaceType.GREEN || surf === SurfaceType.WATER || surf === SurfaceType.TEE) {
+        continue;
       }
 
       placedHeroTrees.push({ x, z, radius: rReq });
@@ -306,6 +325,11 @@ export class CourseManager {
         if (!collided) break;
       }
 
+      const surf = this.terrain.getSurfaceAt(x, z);
+      if (surf === SurfaceType.BUNKER || surf === SurfaceType.GREEN || surf === SurfaceType.WATER || surf === SurfaceType.TEE) {
+        continue;
+      }
+
       placedPines.push({ x, z, radius: rReq });
       const ty = this.terrain.getElevation(x, z);
       const rotY = (i * 2.39996) % (Math.PI * 2);
@@ -372,6 +396,11 @@ export class CourseManager {
         if (!collided) break;
       }
 
+      const surf = this.terrain.getSurfaceAt(x, z);
+      if (surf === SurfaceType.BUNKER || surf === SurfaceType.GREEN || surf === SurfaceType.WATER || surf === SurfaceType.TEE) {
+        continue;
+      }
+
       placedBushes.push({ x, z, radius: rReq });
       const by = this.terrain.getElevation(x, z);
       const rotY = (i * 2.618) % (Math.PI * 2);
@@ -418,6 +447,90 @@ export class CourseManager {
     const idx = this.sceneryMeshes.indexOf(mesh);
     if (idx !== -1) {
       this.sceneryMeshes.splice(idx, 1);
+    }
+  }
+
+  /**
+   * Automatically clears foliage, bushes, rocks, and trees from hazards, greens, and tee boxes,
+   * keeping the course realistic and clean whenever features are added, moved, or transformed.
+   */
+  public refreshSceneryForFeatures() {
+    if (!this.terrain) return;
+
+    for (const mesh of this.sceneryMeshes) {
+      if (!mesh || mesh.isDisposed()) continue;
+      // Preserve water planes, cliff formations, pin flag, and tee markers
+      if (
+        mesh.name.startsWith('water') ||
+        mesh.name.startsWith('cliff') ||
+        mesh.name.startsWith('pin') ||
+        mesh.name.startsWith('tee')
+      ) {
+        continue;
+      }
+
+      const x = mesh.position.x;
+      const z = mesh.position.z;
+      const surf = this.terrain.getSurfaceAt(x, z);
+
+      let inHazard = (
+        surf === SurfaceType.BUNKER ||
+        surf === SurfaceType.GREEN ||
+        surf === SurfaceType.WATER ||
+        surf === SurfaceType.TEE
+      );
+
+      if (!inHazard) {
+        for (const feat of this.terrain.stampedFeatures) {
+          if (feat.surfaceType === SurfaceType.BUNKER) {
+            const halfW = feat.width * 0.5;
+            const halfL = feat.length * 0.5;
+            const dx = x - feat.centerX;
+            const dz = z - feat.centerZ;
+            const maxR = Math.max(halfW, halfL) * 1.6;
+            if (Math.abs(dx) <= maxR && Math.abs(dz) <= maxR) {
+              const cosR = Math.cos(-feat.rotationRad);
+              const sinR = Math.sin(-feat.rotationRad);
+              const lx = dx * cosR - dz * sinR;
+              const lz = dx * sinR + dz * cosR;
+              const shapeIdx = feat.bunkerShapeIndex ?? 0;
+              const theta = Math.atan2(lz / Math.max(1, halfL), lx / Math.max(1, halfW));
+              const k = TerrainGrid.getBunkerRadiusFactor(theta, shapeIdx);
+              const baseRad = Math.hypot(halfW * Math.cos(theta), halfL * Math.sin(theta)) * k;
+              const rMeters = Math.hypot(lx, lz);
+              if (rMeters <= baseRad * 0.78 + 0.6) {
+                inHazard = true;
+                break;
+              }
+            }
+          } else if (
+            feat.surfaceType === SurfaceType.GREEN ||
+            feat.surfaceType === SurfaceType.TEE ||
+            feat.surfaceType === SurfaceType.WATER
+          ) {
+            const halfW = feat.width * 0.5;
+            const halfL = feat.length * 0.5;
+            const dx = x - feat.centerX;
+            const dz = z - feat.centerZ;
+            const cosR = Math.cos(-feat.rotationRad);
+            const sinR = Math.sin(-feat.rotationRad);
+            const lx = dx * cosR - dz * sinR;
+            const lz = dx * sinR + dz * cosR;
+            const normDist = Math.sqrt((lx / halfW) * (lx / halfW) + (lz / halfL) * (lz / halfL));
+            if (normDist <= 1.05) {
+              inHazard = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (inHazard) {
+        mesh.setEnabled(false);
+      } else {
+        mesh.setEnabled(true);
+        mesh.position.y = this.terrain.getElevation(x, z);
+      }
     }
   }
 

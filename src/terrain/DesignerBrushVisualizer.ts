@@ -29,6 +29,7 @@ export class DesignerBrushVisualizer {
     this.terrain = terrain;
 
     this.group = new Mesh('designerBrushGroup', this.scene);
+    this.group.isPickable = false;
 
     // 1. Outer Torus Ring
     this.ringMesh = MeshBuilder.CreateTorus('designerBrushRing', {
@@ -36,6 +37,7 @@ export class DesignerBrushVisualizer {
       thickness: 0.12,
       tessellation: 48
     }, this.scene);
+    this.ringMesh.isPickable = false;
     this.ringMesh.parent = this.group;
 
     this.ringMat = new StandardMaterial('brushRingMat', this.scene);
@@ -49,6 +51,7 @@ export class DesignerBrushVisualizer {
       radius: 1.0,
       tessellation: 48
     }, this.scene);
+    this.fillDisc.isPickable = false;
     this.fillDisc.rotation.x = Math.PI * 0.5;
     this.fillDisc.parent = this.group;
 
@@ -65,6 +68,7 @@ export class DesignerBrushVisualizer {
       diameter: 0.45,
       segments: 12
     }, this.scene);
+    this.centerDot.isPickable = false;
     this.centerDot.parent = this.group;
 
     this.dotMat = new StandardMaterial('brushDotMat', this.scene);

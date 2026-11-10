@@ -35,17 +35,17 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FAIRWAY]: {
     name: 'Fairway',
     color: [0.38, 0.70, 0.28],     // Crisp bright fairway green
-    restitution: 0.26,             // Reduced slightly per user request for authentic, controlled fairway bounce
-    friction: 0.38,                // Balanced fairway turf friction
-    rollingResistance: 0.34,       // Refined PGA-style rollout (~12-18m for driver)
+    restitution: 0.32,             // Natural, authentic fairway bounce and forward release
+    friction: 0.32,                // Smooth fairway glide
+    rollingResistance: 0.28,       // Refined PGA-style rollout (~15-22m for driver)
     liePenalty: 1.0,
     spinMultiplier: 1.0
   },
   [SurfaceType.GREEN]: {
     name: 'Green',
     color: [0.28, 0.78, 0.38],     // Silky manicured putting green
-    restitution: 0.32,             // Controlled receptive green bounce
-    friction: 0.22,
+    restitution: 0.28,             // Receptive tournament green with natural hop & smooth rollout
+    friction: 0.36,                // Balanced turf friction allowing smooth release on high shots
     rollingResistance: 0.15,       // Realistic tournament Stimp 10.5 for controlled, readable putts
     liePenalty: 1.0,
     spinMultiplier: 1.0
@@ -62,8 +62,8 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.TEE]: {
     name: 'Tee Box',
     color: [0.42, 0.75, 0.32],
-    restitution: 0.42,
-    friction: 0.32,
+    restitution: 0.36,
+    friction: 0.35,
     rollingResistance: 0.30,
     liePenalty: 1.0,
     spinMultiplier: 1.0
@@ -89,9 +89,9 @@ export const SURFACE_PROPERTIES: Record<SurfaceType, SurfaceProperties> = {
   [SurfaceType.FRINGE]: {
     name: 'Green Fringe',
     color: [0.33, 0.74, 0.33],     // Vivid fringe collar surrounding the green
-    restitution: 0.26,             // Less bounce than fairway
-    friction: 0.48,                // Moderate resistance
-    rollingResistance: 0.42,       // Checks runaway balls
+    restitution: 0.20,             // Soft collar dampening
+    friction: 0.55,                // Moderate-high resistance
+    rollingResistance: 0.45,       // Checks runaway balls
     liePenalty: 0.95,
     spinMultiplier: 0.90
   },

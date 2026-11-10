@@ -541,6 +541,79 @@ class GolfAudioEngine {
       // AudioContext not unlocked yet
     }
   }
+
+  /**
+   * Subtle tactile hover focus chime for menu buttons
+   */
+  public playMenuHover() {
+    this.initContext();
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1800, now);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(700, now + 0.045);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.11, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.060);
+    } catch {
+      // AudioContext not unlocked yet
+    }
+  }
+
+  /**
+   * Clean warm dual-tone confirmation SFX on pressing menu buttons
+   */
+  public playMenuSelect() {
+    this.initContext();
+    if (!this.ctx || !this.masterGain || this.isSfxMuted) return;
+    try {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+      const now = this.ctx.currentTime;
+      const freqs = [587.33, 880]; // crisp fifth D5 -> A5 chime
+      freqs.forEach((f, idx) => {
+        if (!this.ctx || !this.masterGain) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const t0 = now + idx * 0.032;
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, t0);
+
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(idx === 0 ? 0.16 : 0.19, t0 + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(t0);
+        osc.stop(t0 + 0.13);
+      });
+    } catch {
+      // AudioContext not unlocked yet
+    }
+  }
 }
 
 export const soundFx = new GolfAudioEngine();

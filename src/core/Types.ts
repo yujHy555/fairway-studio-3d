@@ -32,6 +32,7 @@ export interface PresetFeature {
   length: number;      // meters
   depthProfile?: number; // negative for depressions (bunkers: -0.8m, water: -1.8m), positive for elevated tees/greens
   lipHeight?: number;    // bunker lip elevation
+  bunkerShapeIndex?: number; // variant shape index (0..4)
   sceneryType?: 'pine' | 'hero_tree' | 'oak' | 'rock_cluster' | 'distance_marker' | 'dam_wall';
 }
 

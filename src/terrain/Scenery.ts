@@ -106,7 +106,7 @@ export class SceneryFactory {
     this.matGlbPineTree.backFaceCulling = false;
     this.matGlbPineTree.twoSidedLighting = false; // Prevents back-face normals from being inverted into shadow
     this.matGlbPineTree.transparencyMode = Material.MATERIAL_ALPHATEST;
-    this.matGlbPineTree.alphaCutOff = 0.44;
+    this.matGlbPineTree.alphaCutOff = 0.34;
 
     // 1b. Hero Specimen Tree Materials (hero_tree_01_01.glb)
     this.matHeroBranches = new StandardMaterial('matHeroBranches', scene);
@@ -123,7 +123,7 @@ export class SceneryFactory {
     this.matHeroLeaves.backFaceCulling = false;
     this.matHeroLeaves.twoSidedLighting = false;
     this.matHeroLeaves.transparencyMode = Material.MATERIAL_ALPHATEST;
-    this.matHeroLeaves.alphaCutOff = 0.38;
+    this.matHeroLeaves.alphaCutOff = 0.32;
 
     this.matHeroTrunk = new StandardMaterial('matHeroTrunk', scene);
     this.matHeroTrunk.diffuseColor = new Color3(0.96, 0.94, 0.90);
@@ -144,7 +144,7 @@ export class SceneryFactory {
     this.matBushLeaves.backFaceCulling = false;
     this.matBushLeaves.twoSidedLighting = false;
     this.matBushLeaves.transparencyMode = Material.MATERIAL_ALPHATEST;
-    this.matBushLeaves.alphaCutOff = 0.38;
+    this.matBushLeaves.alphaCutOff = 0.32;
 
     // 1d. High-Realism Rock Material (Rock_01.glb)
     this.matGlbRock = new StandardMaterial('matGlbRock', scene);
@@ -231,8 +231,8 @@ export class SceneryFactory {
     this.matPinPole.specularPower = 64;
 
     this.matPinFlag = new StandardMaterial('matPinFlag', scene);
-    this.matPinFlag.diffuseColor = new Color3(0.86, 0.12, 0.14);
-    this.matPinFlag.specularColor = new Color3(0.15, 0.12, 0.12);
+    this.matPinFlag.diffuseColor = new Color3(1.0, 0.82, 0.05); // PGA Tournament Yellow Flag
+    this.matPinFlag.specularColor = new Color3(0.20, 0.18, 0.10);
     this.matPinFlag.backFaceCulling = false;
 
     this.matCup = new StandardMaterial('matCup', scene);
@@ -935,13 +935,13 @@ export class SceneryFactory {
 
     const branches = new Mesh(`bush_branches_${idx}`, this.scene);
     branches.material = this.matBushBranches;
-    branches.isPickable = false;
+    branches.isPickable = true;
     branches.parent = root;
 
     const leaves = new Mesh(`bush_leaves_${idx}`, this.scene);
     leaves.material = this.matBushLeaves;
     leaves.receiveShadows = false;
-    leaves.isPickable = false;
+    leaves.isPickable = true;
     leaves.parent = root;
 
     if (this.bushBranchesVertexData) this.bushBranchesVertexData.applyToMesh(branches, false);
@@ -1107,6 +1107,7 @@ export class SceneryFactory {
       r.rotation.y = rocks[i].rot;
       r.material = this.matRock;
       r.receiveShadows = true;
+      r.isPickable = true;
       r.parent = root;
     }
 
@@ -1125,6 +1126,7 @@ export class SceneryFactory {
     wall.position.y = height * 0.5;
     wall.material = this.matDam;
     wall.receiveShadows = true;
+    wall.isPickable = true;
     wall.parent = root;
 
     const cap = MeshBuilder.CreateBox(`dam_cap_${x}_${z}`, {
@@ -1135,6 +1137,7 @@ export class SceneryFactory {
     cap.position.y = height + 0.175;
     cap.material = this.matDam;
     cap.receiveShadows = true;
+    cap.isPickable = true;
     cap.parent = root;
 
     return root;
