@@ -215,7 +215,17 @@ export class UIController {
   private menuBgTimer: number | null = null;
   private menuBgIndex: number = 0;
   private isMainMenuVisible: boolean = false;
+  private isMenuAuthenticated: boolean = false;
   private menuFocusedIdx: 0 | 1 = 0;
+  private musicAudio: HTMLAudioElement | null = null;
+  private musicTrackIndex: number = 0;
+  private musicIsPlaying: boolean = false;
+  private musicIsLoop: boolean = false;
+  private musicVolume: number = 0.55;
+  private readonly musicTracks = [
+    { title: 'Everything In Its Right Place', url: '/audio/music/track_01.mp3' },
+    { title: 'Policy of Truth', url: '/audio/music/track_02.mp3' }
+  ];
   private designerPanel!: HTMLDivElement;
   private playHUD!: HTMLDivElement;
   private swingMeterBar!: HTMLDivElement;
@@ -418,16 +428,39 @@ export class UIController {
           </div>
         </div>
 
-        <!-- Wind Gauge -->
-        <div class="hud-wind-gauge">
-          <div class="compass-circle">
-            <div class="wind-arrow-wrapper" id="hud-wind-arrow">
-              <div class="wind-arrow-head"></div>
+        <div class="hud-top-right-widgets">
+          <!-- Audio Soundtrack Player (Left of Wind Panel) -->
+          <div class="hud-music-player" id="hud-music-player" title="Course Soundtrack Player">
+            <div class="music-header-row">
+              <span class="music-note-badge">🎵</span>
+              <span class="music-track-title" id="music-track-title">Everything In Its Right Place</span>
+              <span class="music-track-counter" id="music-track-counter">1/2</span>
             </div>
-            <span class="compass-n">N</span>
+            <div class="music-controls-row">
+              <button id="btn-music-prev" type="button" class="btn-music" title="Previous Track">⏮</button>
+              <button id="btn-music-play" type="button" class="btn-music btn-music-primary" title="Play / Pause">▶</button>
+              <button id="btn-music-stop" type="button" class="btn-music" title="Stop">⏹</button>
+              <button id="btn-music-next" type="button" class="btn-music" title="Next Track">⏭</button>
+              <button id="btn-music-loop" type="button" class="btn-music" title="Loop Track">🔁</button>
+            </div>
+            <div class="music-volume-row">
+              <span class="music-vol-icon" id="music-vol-icon">🔊</span>
+              <input type="range" id="music-volume-slider" class="music-vol-slider" min="0" max="1" step="0.01" value="0.55" title="Music Volume" />
+              <span class="music-vol-pct" id="music-vol-pct">55%</span>
+            </div>
           </div>
-          <div class="wind-speed" id="hud-wind-speed">3.5 m/s</div>
-          <div class="wind-sub">WIND</div>
+
+          <!-- Wind Gauge -->
+          <div class="hud-wind-gauge">
+            <div class="compass-circle">
+              <div class="wind-arrow-wrapper" id="hud-wind-arrow">
+                <div class="wind-arrow-head"></div>
+              </div>
+              <span class="compass-n">N</span>
+            </div>
+            <div class="wind-speed" id="hud-wind-speed">3.5 m/s</div>
+            <div class="wind-sub">WIND</div>
+          </div>
         </div>
 
         <!-- Club Selection & Shot Info -->
@@ -1382,7 +1415,7 @@ export class UIController {
 
     const overlay = document.createElement('div');
     overlay.id = 'main-menu-overlay';
-    overlay.className = 'main-menu-overlay hidden';
+    overlay.className = 'main-menu-overlay hidden is-locked';
     overlay.innerHTML = `
       <div class="menu-bg-layer">
         <img class="menu-bg-slide active" src="/images/menu/menu_bg_1.jpg" alt="Coastal Links Course" />
@@ -1398,6 +1431,28 @@ export class UIController {
           <span class="menu-brand-tag">3D PRO</span>
           <span class="menu-brand-line"></span>
         </div>
+      </div>
+
+      <!-- Center-Screen Passcode Login Gate -->
+      <div id="menu-login-gate" class="menu-login-gate" role="dialog" aria-label="Course Access Login">
+        <div class="menu-login-emblem">🔐</div>
+        <div class="menu-login-heading">CLUBHOUSE LOGIN</div>
+        <div class="menu-login-sub">Enter password to unlock main menu</div>
+        <form id="menu-login-form" class="menu-login-form" autocomplete="off">
+          <div class="menu-login-input-wrap">
+            <input
+              type="password"
+              id="menu-login-password"
+              class="menu-login-input"
+              placeholder="Password"
+              autocomplete="off"
+              aria-label="Password"
+            />
+            <button id="btn-login-toggle-vis" type="button" class="menu-login-eye" title="Show / Hide Password">👁</button>
+          </div>
+          <div id="menu-login-error" class="menu-login-error" aria-live="polite"></div>
+          <button id="btn-menu-login" type="submit" class="menu-login-submit">ENTER CLUBHOUSE</button>
+        </form>
       </div>
 
       <nav class="menu-glass-card" aria-label="Main Menu">
@@ -1479,6 +1534,49 @@ export class UIController {
       if (this.currentMode === 'designer') this.callbacks.onMainMenuDesigner?.();
       else this.callbacks.onMainMenuPlay?.();
     });
+
+    // Center-screen password login validation (password = "5")
+    const loginForm = document.getElementById('menu-login-form') as HTMLFormElement | null;
+    const loginInput = document.getElementById('menu-login-password') as HTMLInputElement | null;
+    const loginErr = document.getElementById('menu-login-error');
+    const loginGate = document.getElementById('menu-login-gate');
+    const loginBtn = document.getElementById('btn-menu-login');
+    const toggleVis = document.getElementById('btn-login-toggle-vis');
+
+    loginBtn?.addEventListener('mouseenter', () => soundFx.playMenuHover());
+
+    toggleVis?.addEventListener('click', () => {
+      if (!loginInput) return;
+      loginInput.type = loginInput.type === 'password' ? 'text' : 'password';
+      soundFx.playMenuHover();
+    });
+
+    loginForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const entered = (loginInput?.value ?? '').trim();
+      if (entered === '5') {
+        this.isMenuAuthenticated = true;
+        overlay.classList.remove('is-locked');
+        loginGate?.classList.add('hidden');
+        if (loginErr) loginErr.textContent = '';
+        if (loginInput) {
+          loginInput.value = '';
+          loginInput.blur();
+        }
+        soundFx.playMenuSelect();
+        this.setMenuFocus(0, false);
+      } else {
+        soundFx.playAimTick();
+        if (loginErr) loginErr.textContent = 'Incorrect password. Please try again.';
+        loginGate?.classList.remove('shake');
+        void (loginGate as HTMLElement | null)?.offsetWidth;
+        loginGate?.classList.add('shake');
+        if (loginInput) {
+          loginInput.focus();
+          loginInput.select();
+        }
+      }
+    });
   }
 
   public advanceMenuBackground() {
@@ -1494,7 +1592,14 @@ export class UIController {
     this.isMainMenuVisible = true;
     document.body.classList.add('in-main-menu');
     this.menuOverlay.classList.remove('hidden');
-    this.setMenuFocus(0);
+    if (this.isMenuAuthenticated) {
+      this.menuOverlay.classList.remove('is-locked');
+      document.getElementById('menu-login-gate')?.classList.add('hidden');
+      this.setMenuFocus(0);
+    } else {
+      this.menuOverlay.classList.add('is-locked');
+      document.getElementById('menu-login-gate')?.classList.remove('hidden');
+    }
     if (this.menuBgTimer !== null) {
       window.clearInterval(this.menuBgTimer);
     }
@@ -1582,7 +1687,132 @@ export class UIController {
     return this.currentMode;
   }
 
+  private setupMusicPlayer() {
+    const titleEl = document.getElementById('music-track-title');
+    const counterEl = document.getElementById('music-track-counter');
+    const btnPlay = document.getElementById('btn-music-play');
+    const btnStop = document.getElementById('btn-music-stop');
+    const btnPrev = document.getElementById('btn-music-prev');
+    const btnNext = document.getElementById('btn-music-next');
+    const btnLoop = document.getElementById('btn-music-loop');
+    const volSlider = document.getElementById('music-volume-slider') as HTMLInputElement | null;
+    const volIcon = document.getElementById('music-vol-icon');
+    const volPct = document.getElementById('music-vol-pct');
+    const playerEl = document.getElementById('hud-music-player');
+
+    // Keep camera/canvas pointer drag from stealing slider/button interactions
+    playerEl?.addEventListener('pointerdown', (e) => e.stopPropagation());
+    playerEl?.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+
+    const audio = new Audio(this.musicTracks[this.musicTrackIndex].url);
+    audio.volume = this.musicVolume;
+    audio.loop = this.musicIsLoop;
+    audio.preload = 'metadata';
+    this.musicAudio = audio;
+
+    const syncUI = () => {
+      const track = this.musicTracks[this.musicTrackIndex];
+      if (titleEl) {
+        titleEl.textContent = track.title;
+        titleEl.title = track.title;
+      }
+      if (counterEl) {
+        counterEl.textContent = `${this.musicTrackIndex + 1}/${this.musicTracks.length}`;
+      }
+      if (btnPlay) {
+        btnPlay.textContent = this.musicIsPlaying ? '⏸' : '▶';
+        btnPlay.classList.toggle('active', this.musicIsPlaying);
+      }
+      if (btnLoop) {
+        btnLoop.classList.toggle('active', this.musicIsLoop);
+        btnLoop.title = this.musicIsLoop ? 'Looping Current Track (ON)' : 'Loop Track (OFF — Auto Next)';
+      }
+      if (volIcon) {
+        volIcon.textContent = this.musicVolume <= 0.01 ? '🔇' : (this.musicVolume < 0.45 ? '🔉' : '🔊');
+      }
+      if (volPct) {
+        volPct.textContent = `${Math.round(this.musicVolume * 100)}%`;
+      }
+    };
+
+    const loadAndMaybePlay = (shouldPlay: boolean) => {
+      audio.src = this.musicTracks[this.musicTrackIndex].url;
+      audio.currentTime = 0;
+      audio.loop = this.musicIsLoop;
+      if (shouldPlay) {
+        audio.play().then(() => {
+          this.musicIsPlaying = true;
+          syncUI();
+        }).catch(() => {
+          this.musicIsPlaying = false;
+          syncUI();
+        });
+      } else {
+        audio.pause();
+        this.musicIsPlaying = false;
+      }
+      syncUI();
+    };
+
+    btnPlay?.addEventListener('click', () => {
+      if (this.musicIsPlaying) {
+        audio.pause();
+        this.musicIsPlaying = false;
+        syncUI();
+      } else {
+        audio.play().then(() => {
+          this.musicIsPlaying = true;
+          syncUI();
+        }).catch(() => {
+          // Even if blocked before audio load, reflect attempt safely
+          this.musicIsPlaying = !audio.paused;
+          syncUI();
+        });
+      }
+    });
+
+    btnStop?.addEventListener('click', () => {
+      audio.pause();
+      audio.currentTime = 0;
+      this.musicIsPlaying = false;
+      syncUI();
+    });
+
+    btnPrev?.addEventListener('click', () => {
+      this.musicTrackIndex = (this.musicTrackIndex - 1 + this.musicTracks.length) % this.musicTracks.length;
+      loadAndMaybePlay(this.musicIsPlaying);
+    });
+
+    btnNext?.addEventListener('click', () => {
+      this.musicTrackIndex = (this.musicTrackIndex + 1) % this.musicTracks.length;
+      loadAndMaybePlay(this.musicIsPlaying);
+    });
+
+    btnLoop?.addEventListener('click', () => {
+      this.musicIsLoop = !this.musicIsLoop;
+      audio.loop = this.musicIsLoop;
+      syncUI();
+    });
+
+    volSlider?.addEventListener('input', () => {
+      this.musicVolume = Math.max(0, Math.min(1, parseFloat(volSlider.value)));
+      audio.volume = this.musicVolume;
+      syncUI();
+    });
+
+    audio.addEventListener('ended', () => {
+      if (!this.musicIsLoop) {
+        this.musicTrackIndex = (this.musicTrackIndex + 1) % this.musicTracks.length;
+        loadAndMaybePlay(true);
+      }
+    });
+
+    syncUI();
+  }
+
   private setupListeners() {
+    this.setupMusicPlayer();
+
     // Open Main Menu
     document.getElementById('btn-open-main-menu')?.addEventListener('click', () => {
       soundFx.playMenuSelect();
@@ -1903,9 +2133,18 @@ export class UIController {
 
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
+      const targetTag = (e.target as HTMLElement | null)?.tagName;
+      const isTextTyping =
+        (targetTag === 'INPUT' && (e.target as HTMLInputElement).type !== 'range' && (e.target as HTMLInputElement).type !== 'checkbox') ||
+        targetTag === 'TEXTAREA' ||
+        targetTag === 'SELECT';
+
       if (this.isMainMenuVisible) {
-        if (e.code === 'KeyF') {
+        if (!isTextTyping && e.code === 'KeyF') {
           this.toggleFullscreen();
+          return;
+        }
+        if (!this.isMenuAuthenticated) {
           return;
         }
         if (e.key === 'ArrowUp' || e.code === 'KeyW') {
@@ -1922,6 +2161,8 @@ export class UIController {
         }
         return;
       }
+
+      if (isTextTyping) return;
 
       if (e.key === 'Escape' && !this.isTipsModalOpen && !document.getElementById('modal-hole-complete')) {
         soundFx.playMenuSelect();
